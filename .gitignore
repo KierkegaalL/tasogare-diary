@@ -1,0 +1,17 @@
+# Claude Code ローカル設定（個人環境・コミットしない）
+.claude/settings.local.json
+
+# 環境変数・シークレット
+.env
+.env.*
+!.env.example
+
+# 依存・ビルド成果物（ステップ4以降）
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+
+# OS
+.DS_Store
