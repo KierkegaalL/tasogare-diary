@@ -20,7 +20,7 @@
 ### 1.2 認証
 | 対象 | 認証 |
 |---|---|
-| 生成系・書込系・削除 | Firebase Auth（Apple/Google）。`context.auth.uid` 必須。未認証は `unauthenticated` |
+| 生成系・書込系・削除 | Firebase Auth。`context.auth.uid` 必須（当面は**匿名認証**で uid を確立。将来 Apple/Google をリンク昇格）。未認証は `unauthenticated` |
 | QR ペアリング照合（Web 初回） | 未サインインでも可。短命トークンを検証しカスタムトークンを返す（第5章） |
 
 - リソースは常に呼び出し元 uid にスコープ（他者データへのアクセス不可）。

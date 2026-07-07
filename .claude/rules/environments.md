@@ -42,3 +42,16 @@
 
 - `app.config.ts` の `extra` + `process.env.APP_ENV` で環境を分岐する想定
 - Firebase 設定は環境ごとに読み分ける（[.claude/skills/firebase](../skills/firebase) 参照）
+
+## Firebase クライアント設定（Phase2・匿名認証）
+
+配布しない前提のため、認証は **Firebase 匿名認証（JS SDK）** を採用（開発ビルド／Apple Developer Program 不要・Expo Go 可）。
+
+- クライアント設定は環境変数 `EXPO_PUBLIC_FIREBASE_*` から読み込む（[.env.example](../../.env.example)、`src/services/firebase/config.ts`）。**公開可能なクライアント値のみ**で、シークレットは含めない。
+- 値が揃うと `isFirebaseConfigured=true` となり、認証がローカル匿名 → Firebase 匿名認証へ自動で切り替わる（`src/services/auth`）。
+- **セットアップ手順**:
+  1. Firebase Console で無料プロジェクト作成（環境ごと推奨: dev/staging/prod）
+  2. 「ウェブアプリ」を追加し `firebaseConfig` を取得
+  3. Authentication → Sign-in method → **匿名（Anonymous）を有効化**
+  4. 取得値を `.env`（gitignore 済み）に設定 → 再起動で Firebase 匿名認証に切替
+- Apple/Google サインインは、恒久アカウントが要る段階（「Webで見る」/バックアップ）で **匿名アカウントへリンク**して昇格する（別タスク）。

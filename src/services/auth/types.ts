@@ -1,5 +1,5 @@
 // 認証の抽象。実装（ローカル匿名 / Firebase）を差し替え可能にする。
-export type AuthProviderKind = 'local' | 'apple' | 'google';
+export type AuthProviderKind = 'local' | 'anonymous' | 'apple' | 'google';
 
 export interface AuthUser {
   uid: string;

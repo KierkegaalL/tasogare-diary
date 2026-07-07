@@ -1,16 +1,33 @@
-import type { AuthProvider } from './types';
+import { onAuthStateChanged, signInAnonymously, signOut as firebaseSignOut } from 'firebase/auth';
+import type { User } from 'firebase/auth';
 
-// Firebase 認証プロバイダ（スタブ）。
-// TODO(Phase2): firebase/auth を用いた Apple/Google サインインを実装する。
-//   - 前提: Firebase プロジェクトの認証情報（firebase/config.ts）＋ ネイティブ認証のための開発ビルド。
-//   - Expo Go では Apple/Google のネイティブサインインは動作しないため、Development Build へ移行する。
-//   - サインイン結果の uid で Firestore（entries/messages）をスコープする（次の Firestore ステップ）。
-const notImplemented = async (): Promise<never> => {
-  throw new Error('firebaseAuthProvider is not implemented yet (Phase2: 認証情報＋開発ビルドが必要)');
-};
+import type { AuthProvider, AuthUser } from './types';
+import { getFirebaseAuth } from '../firebase/app';
+
+// Firebase 匿名認証プロバイダ（Phase2）。
+// 配布不要・Expo Go 可・開発ビルド不要で、実 Firebase uid を確立する。
+// isFirebaseConfigured（firebase/config.ts）が true のときのみ getAuthProvider から読み込まれる。
+// TODO: 将来 Apple/Google サインインを匿名アカウントへ linkWithCredential で昇格する（データ維持）。
+const toAuthUser = (user: User): AuthUser => ({
+  uid: user.uid,
+  provider: 'anonymous',
+  displayName: user.displayName ?? undefined,
+});
 
 export const firebaseAuthProvider: AuthProvider = {
-  init: notImplemented,
-  signIn: notImplemented,
-  signOut: notImplemented,
+  init: () =>
+    new Promise<AuthUser | null>((resolve) => {
+      const auth = getFirebaseAuth();
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        unsubscribe();
+        resolve(user ? toAuthUser(user) : null);
+      });
+    }),
+  signIn: async () => {
+    const credential = await signInAnonymously(getFirebaseAuth());
+    return toAuthUser(credential.user);
+  },
+  signOut: async () => {
+    await firebaseSignOut(getFirebaseAuth());
+  },
 };
