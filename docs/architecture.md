@@ -148,9 +148,13 @@ stateDiagram-v2
 | ストア | 保持 | 備考 |
 |---|---|---|
 | `draftStore` | 進行中の日記（mood/event/words/生成文/感情ラベル） | オフライン継続の要。ローカル永続に同期 |
-| `authStore` | 認証状態・uid | Apple/Google サインイン |
+| `authStore` | 認証状態・uid | 差し替え可能な認証プロバイダ（下記）を利用 |
 | `settingsStore` | 表示設定・reduced-motion 等 | アクセシビリティ反映 |
 | `entriesCache` | 直近エントリ | TanStack Query と併用 |
+
+**認証プロバイダの抽象（Phase2 Auth）**: 認証は `AuthProvider` インターフェース（`init`/`signIn`/`signOut`）で抽象化し、実装を差し替える。
+- **ローカル匿名プロバイダ（既定）**: 端末に uid を発行・永続（AsyncStorage）。モバイルはログイン画面を持たず、uid を自動確立する（visual-design.html のとおり、サインインは「Webで見る」/バックアップ時のみ）。
+- **Firebase プロバイダ**: `EXPO_PUBLIC_FIREBASE_*` 設定を検出したら切り替える。Apple/Google サインインはネイティブ認証のため **開発ビルド** が前提。uid は Firestore（entries/messages）のスコープに用いる。
 
 ### 4.3 下書き（オフライン）永続
 - **推奨**: `react-native-mmkv`（同期・高速）に `draftStore` を永続化。案B: `AsyncStorage`（標準・非同期）。
