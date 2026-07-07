@@ -5,10 +5,12 @@
 #
 # 注意: フックは実行中セッションのモデルを切り替えられない。本フックは
 #       「推奨モデル」を提示し、必要なら /model での切替を促すだけの助言。
+#       現在モデルが検知できない場合は警告を出さず、依頼内容ベースの推奨のみ表示する。
 #
 # 入力: stdin に UserPromptSubmit の JSON（.prompt に依頼文）。
 # 出力: hookSpecificOutput.additionalContext に1行の助言。
 
+# 意図的に set -e は付けない。失敗時も末尾 exit 0 で握りつぶし、助言なし（安全側）に倒す。
 set -uo pipefail
 
 INPUT="$(cat 2>/dev/null || true)"
@@ -16,7 +18,8 @@ INPUT="$(cat 2>/dev/null || true)"
 command -v python3 >/dev/null 2>&1 || exit 0
 
 python3 - "$INPUT" <<'PY' 2>/dev/null
-import json, sys
+import json, sys, os
+from collections import deque
 
 try:
     data = json.loads(sys.argv[1])
@@ -25,6 +28,35 @@ except Exception:
 
 # 英語混じり語のため小文字化して照合（日本語は影響を受けない）
 p = (data.get("prompt") or "").lower()
+
+# --- 現在のモデルを検知 -------------------------------------------------
+# フック入力に model があればそれを、無ければ transcript の末尾 assistant 発話の
+# message.model を採用する。取得できない場合は空文字（＝警告を出さない）。
+def detect_model(data):
+    m = data.get("model")
+    if isinstance(m, str) and m:
+        return m
+    tpath = data.get("transcript_path") or ""
+    if not tpath or not os.path.isfile(tpath):
+        return ""
+    try:
+        # 末尾400行のみ保持（長大な transcript でも全文をリスト化しない）
+        with open(tpath, encoding="utf-8") as f:
+            lines = deque(f, maxlen=400)
+        for line in reversed(lines):
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            msg = d.get("message")
+            if isinstance(msg, dict) and isinstance(msg.get("model"), str) and msg["model"]:
+                return msg["model"]
+    except Exception:
+        return ""
+    return ""
+
+model = detect_model(data).lower()
+is_opus48 = "opus-4-8" in model  # claude-opus-4-8 系
 
 # 新規作成を示すシグナル（強めの語に限定して過検出を避ける）
 create = ["新規", "新しく", "新しい", "ゼロから", "作成", "つくって", "作って",
@@ -46,17 +78,27 @@ has_m = any(k in p for k in modify)
 OPUS = "Opus 4.8 (claude-opus-4-8)"
 SONNET = "Sonnet 5 (claude-sonnet-5)"
 
-if has_c and not has_m:
-    rec = f"新規作成と推定 → {OPUS} を推奨"
-elif has_m and not has_c:
-    rec = f"既存/作成済みファイルへの実行と推定 → {SONNET} を推奨"
-elif has_c and has_m:
-    rec = f"新規作成と修整が混在の可能性。新規部分は {OPUS}、既存部分は {SONNET}"
-else:
-    rec = f"判定不能。新規作成なら {OPUS}、既存ファイルへの修整・調査なら {SONNET}"
+# 「新規作成以外」= 修整・調査シグナルがあり、新規作成シグナルが無い状態。
+is_non_creation = has_m and not has_c
 
-msg = ("[モデル方針 / CLAUDE.md 原則7] " + rec +
-       "。現在のモデルが異なる場合は /model で切替を検討（本フックは切替を強制しない）。")
+if is_opus48 and is_non_creation:
+    # 現在 Opus 4.8 かつ新規作成でない依頼 → 警告（切替は強制しない）
+    msg = ("⚠️ [モデル方針 警告 / CLAUDE.md 原則7] 現在のモデルは Opus 4.8 ですが、"
+           "この依頼は新規作成ではなく既存/作成済みファイルへの修整・調査と推定されます。"
+           f"原則7では {SONNET} を使用すべきタスクです。作業に入る前に、返信の冒頭でユーザーに"
+           "この不一致を明示し、`/model` での Sonnet 5 への切替を促してください"
+           "（このまま続行するかはユーザーの判断）。")
+else:
+    if has_c and not has_m:
+        rec = f"新規作成と推定 → {OPUS} を推奨"
+    elif has_m and not has_c:
+        rec = f"既存/作成済みファイルへの実行と推定 → {SONNET} を推奨"
+    elif has_c and has_m:
+        rec = f"新規作成と修整が混在の可能性。新規部分は {OPUS}、既存部分は {SONNET}"
+    else:
+        rec = f"判定不能。新規作成なら {OPUS}、既存ファイルへの修整・調査なら {SONNET}"
+    msg = ("[モデル方針 / CLAUDE.md 原則7] " + rec +
+           "。現在のモデルが異なる場合は /model で切替を検討（本フックは切替を強制しない）。")
 
 print(json.dumps({
     "hookSpecificOutput": {
