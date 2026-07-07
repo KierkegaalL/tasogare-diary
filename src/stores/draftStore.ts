@@ -41,6 +41,7 @@ export const useDraftStore = create<DraftState>((set) => ({
       return { words: [...state.words, word] };
     }),
   removeWord: (text) => set((state) => ({ words: state.words.filter((w) => w.text !== text) })),
+  // TODO(Phase2): 生成本文/推定感情ラベルの下書き永続に配線する（現状は Preview のローカル状態で管理）。
   setBodyText: (bodyText) => set({ bodyText }),
   setMoodLevel: (moodLevel) => set({ moodLevel }),
   setAwareness: (awareness) => set({ awareness }),

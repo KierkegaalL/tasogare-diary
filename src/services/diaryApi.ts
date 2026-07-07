@@ -57,5 +57,80 @@ export async function suggestWords(req: SuggestWordsRequest): Promise<SuggestWor
   return { suggestions, promptVersion: 'words-v1-mock' };
 }
 
+// ---- 型（api-contract.md 3.2 generateDiary / 3.3 adjustDiary）----
+export interface GenerateDiaryRequest {
+  words: DiaryWord[];
+  date: string; // YYYY-MM-DD
+  locale: 'ja';
+}
+export interface GenerateDiaryResponse {
+  bodyText: string;
+  mood: MoodLevel | null;
+  promptVersion: string;
+}
+export type AdjustInstruction = 'positive' | 'shorter' | 'detailed';
+export interface AdjustDiaryRequest {
+  bodyText: string;
+  instruction: AdjustInstruction;
+  locale: 'ja';
+}
+export type AdjustDiaryResponse = GenerateDiaryResponse;
+
+// 気持ちの語 → 感情ラベル（enum）の推定。実サービスでは Claude が推定する（api-contract.md 3.2）。
+const MOOD_ESTIMATE: Record<string, MoodLevel> = {
+  疲れた: 'tender',
+  もやもや: 'tender',
+  なんとなく: 'tender',
+  しんどい: 'heavy',
+  嬉しかった: 'calm',
+  穏やか: 'calm',
+  ホッとした: 'calm',
+};
+
+function estimateMood(words: DiaryWord[]): MoodLevel | null {
+  const moodWord = words.find((w) => w.category === 'mood')?.text;
+  if (!moodWord) return null;
+  return MOOD_ESTIMATE[moodWord] ?? 'tender';
+}
+
+// モック: 選択語群から日記本文＋推定感情ラベルを生成する（api-contract.md 3.2）。
+export async function generateDiary(req: GenerateDiaryRequest): Promise<GenerateDiaryResponse> {
+  await delay(800);
+
+  const moodWord = req.words.find((w) => w.category === 'mood')?.text;
+  const eventWord = req.words.find((w) => w.category === 'event')?.text;
+  const assoc = req.words.filter((w) => w.category === 'assoc').map((w) => w.text);
+
+  const segments: string[] = [];
+  if (eventWord) segments.push(`今日は${eventWord}で過ごした`);
+  if (assoc.length) segments.push(`${assoc.join('と')}が心に残っている`);
+  if (moodWord) segments.push(`${moodWord}気持ちの一日だった`);
+
+  const bodyText = segments.length > 0 ? `${segments.join('。')}。` : '静かな一日だった。';
+  return { bodyText, mood: estimateMood(req.words), promptVersion: 'diary-v1-mock' };
+}
+
+// モック: 本文を調整・再生成する（api-contract.md 3.3）。mood は変更しない（呼び出し側で維持）。
+export async function adjustDiary(req: AdjustDiaryRequest): Promise<AdjustDiaryResponse> {
+  await delay(600);
+
+  const trimmed = req.bodyText.replace(/。$/, '');
+  let bodyText = req.bodyText;
+  switch (req.instruction) {
+    case 'positive':
+      bodyText = `${trimmed}。それでも、悪くない一日だったと思う。`;
+      break;
+    case 'shorter': {
+      const first = req.bodyText.split('。').filter(Boolean)[0];
+      bodyText = first ? `${first}。` : req.bodyText;
+      break;
+    }
+    case 'detailed':
+      bodyText = `${trimmed}。ふとした時間に、その感覚を思い返していた。`;
+      break;
+  }
+  return { bodyText, mood: null, promptVersion: 'adjust-v1-mock' };
+}
+
 // 型の再エクスポート（呼び出し側の利便のため）。
 export type { DiaryWord };

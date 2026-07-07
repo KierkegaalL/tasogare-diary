@@ -149,6 +149,7 @@ export function WordsScreen() {
           <PrimaryButton
             label="文章にする →"
             onPress={() => navigation.navigate('Preview')}
+            disabled={composed.length === 0}
           />
         </View>
       </ScrollView>
