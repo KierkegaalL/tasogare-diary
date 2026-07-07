@@ -1,6 +1,6 @@
 # build-commands.md — ビルド/テスト/lint コマンド & チェックループ手順
 
-> React Native プロジェクト実体はステップ4で作成する。以下は想定コマンドであり、`package.json` 整備後に確定・更新すること。
+> Expo プロジェクト（Expo SDK 57 / RN 0.86 / React 19 / TypeScript）はステップ4で scaffold 済み。以下のコマンドは `package.json` の scripts と一致する（`lint`/`typecheck`/`test`/`format`）。
 
 ## ビルド / 実行
 

@@ -6,12 +6,22 @@
 .env.*
 !.env.example
 
-# 依存・ビルド成果物（ステップ4以降）
+# 依存・ビルド成果物
 node_modules/
 .expo/
 dist/
 web-build/
+expo-env.d.ts
+*.tsbuildinfo
 *.log
+npm-debug.*
+.metro-health-check*
+
+# ネイティブ生成物（prebuild）
+/ios
+/android
+.kotlin/
 
 # OS
 .DS_Store
+*.pem
