@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, spacing } from '../theme';
 
 interface ScreenShellProps {
-  title: string;
+  title?: string;
   subtitle?: string;
   /** 指定時、ヘッダーに戻るボタン（visual-design.html .back-btn）を表示。 */
   onBack?: () => void;
@@ -36,7 +36,7 @@ export function ScreenShell({ title, subtitle, onBack, headerContent, children }
         </View>
       ) : null}
       <View style={styles.content}>
-        <Text style={styles.title}>{title}</Text>
+        {title ? <Text style={styles.title}>{title}</Text> : null}
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         <View style={styles.body}>{children}</View>
       </View>
