@@ -1,4 +1,4 @@
-import type { DiaryWord, WordCategory } from '../types/diary';
+import type { ChatRole, DiaryWord, WordCategory } from '../types/diary';
 import type { MoodLevel } from '../theme/colors';
 
 // Claude 連携（api-contract.md）のクライアント側 I/F。
@@ -130,6 +130,54 @@ export async function adjustDiary(req: AdjustDiaryRequest): Promise<AdjustDiaryR
       break;
   }
   return { bodyText, mood: null, promptVersion: 'adjust-v1-mock' };
+}
+
+// ---- 型（api-contract.md 3.4 chat）----
+export interface ChatMessageIO {
+  role: ChatRole;
+  text: string;
+}
+export interface ChatRequest {
+  entryId: string;
+  message: string;
+  history: ChatMessageIO[];
+}
+export interface ChatResponse {
+  reply: string;
+  promptVersion: string;
+}
+
+// 寄り添い応答の候補（診断・断定はしない: constraints.md / api-contract.md 3.4）。
+const CHAT_REPLIES = [
+  'そう感じていたんですね。話してくれてありがとうございます。',
+  'その気持ち、そのまま大切にしていいと思います。',
+  '少しずつで大丈夫です。無理はしないでくださいね。',
+  'そんな一日だったんですね。今は少し落ち着きましたか？',
+  'よく頑張った一日でしたね。ゆっくり休めますように。',
+];
+
+// モック: その日の記録を文脈に寄り添い応答を返す（api-contract.md 3.4）。
+export async function chat(req: ChatRequest): Promise<ChatResponse> {
+  await delay(700);
+  const index = req.message.trim().length % CHAT_REPLIES.length;
+  return { reply: CHAT_REPLIES[index] ?? CHAT_REPLIES[0]!, promptVersion: 'chat-v1-mock' };
+}
+
+// モック: 対話の最初の問いかけ（空対話時の AI 初回メッセージ）。
+export async function chatOpening(ctx: { mood: MoodLevel | null; bodyText: string }): Promise<ChatResponse> {
+  await delay(700);
+  const moodPart =
+    ctx.mood === 'heavy'
+      ? 'しんどい一日だったんですね。'
+      : ctx.mood === 'tender'
+        ? '少し疲れが残る一日だったのかもしれませんね。'
+        : ctx.mood === 'calm'
+          ? '穏やかな時間もあった一日ですね。'
+          : '';
+  return {
+    reply: `${moodPart}この日のこと、よかったら聞かせてください。今はどんな気持ちですか？`,
+    promptVersion: 'chat-opening-v1-mock',
+  };
 }
 
 // 型の再エクスポート（呼び出し側の利便のため）。

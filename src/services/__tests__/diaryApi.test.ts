@@ -1,4 +1,4 @@
-import { adjustDiary, generateDiary, suggestWords } from '../diaryApi';
+import { adjustDiary, chat, chatOpening, generateDiary, suggestWords } from '../diaryApi';
 import type { DiaryWord } from '../../types/diary';
 
 describe('diaryApi.suggestWords (mock)', () => {
@@ -67,5 +67,19 @@ describe('diaryApi.adjustDiary (mock)', () => {
     const res = await adjustDiary({ bodyText: base, instruction: 'detailed', locale: 'ja' });
     expect(res.bodyText).toContain('思い返していた');
     expect(res.bodyText.length).toBeGreaterThan(base.length);
+  });
+});
+
+describe('diaryApi.chat (mock)', () => {
+  it('寄り添い応答を返す', async () => {
+    const res = await chat({ entryId: 'e1', message: '翌日には提出できたよ', history: [] });
+    expect(res.reply.length).toBeGreaterThan(0);
+    expect(res.promptVersion).toBe('chat-v1-mock');
+  });
+
+  it('chatOpening は感情に応じた最初の問いかけを返す', async () => {
+    const res = await chatOpening({ mood: 'heavy', bodyText: '本文' });
+    expect(res.reply).toContain('しんどい一日');
+    expect(res.reply).toContain('今はどんな気持ちですか？');
   });
 });
