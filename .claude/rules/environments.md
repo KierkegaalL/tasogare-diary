@@ -16,8 +16,20 @@
 |---|---|---|---|
 | Firebase Functions | `http://localhost:5001/.../us-central1` （エミュレータ） | `https://<region>-tasogare-diary-staging.cloudfunctions.net` | `https://<region>-tasogare-diary-prod.cloudfunctions.net` |
 | Claude API | `https://api.anthropic.com`（Functions 経由で呼び出し。クライアントから直叩きしない） | 同左 | 同左 |
+| Web ダッシュボード（Firebase Hosting） | `http://localhost:3000`（Next.js dev） | `https://staging.tasogare-diary.app`（想定） | `https://tasogare-diary.app`（想定） |
 
 > **重要**: Claude API キーはクライアントに埋め込まず、必ず Firebase Functions 経由で呼び出す（[constraints.md](constraints.md) のプライバシー方針参照）。
+
+## Claude モデル設定（確定事項 U-12）
+
+用途別にモデルを使い分け、環境変数（Functions config / Secrets）で差し替え可能にする（[api-contract.md](../../docs/api-contract.md) 第1.3節）。
+
+| 用途 | モデル（既定） |
+|---|---|
+| 連想語提案 / AI対話 / 調整 | `claude-haiku-4-5-20251001`（Haiku 4.5） |
+| 日記文生成 / 週次・月次まとめ | `claude-sonnet-5`（Sonnet 5） |
+
+> モデル ID は環境変数（例: `CLAUDE_MODEL_INTERACTIVE` / `CLAUDE_MODEL_GENERATE`）で上書き可能とし、dev/staging/prod で切り替えられるようにする。
 
 ## デバイス要件
 
