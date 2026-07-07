@@ -10,5 +10,10 @@ export const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 } as const;
 
-// 最低限のキーが揃っている場合のみ Firebase を有効とみなす。
-export const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
+// 認証に必要なコアキーが揃っている場合のみ Firebase を有効とみなす。
+export const isFirebaseConfigured = Boolean(
+  firebaseConfig.apiKey &&
+    firebaseConfig.authDomain &&
+    firebaseConfig.projectId &&
+    firebaseConfig.appId,
+);

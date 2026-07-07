@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { getAuthProvider } from '../services/auth';
+import { localAuthProvider } from '../services/auth/localAuthProvider';
 import type { AuthUser } from '../services/auth';
 
 type AuthStatus = 'loading' | 'authenticated' | 'error';
@@ -25,7 +26,16 @@ export const useAuthStore = create<AuthState>((set) => ({
       const user = restored ?? (await provider.signIn());
       set({ user, status: 'authenticated' });
     } catch {
-      set({ user: null, status: 'error' });
+      // フォールバック: 設定プロバイダ（Firebase 匿名認証等）が失敗（例: 初回起動オフライン、
+      // signInAnonymously はネットワーク必須）した場合、ローカル匿名IDで最低限の動作を確保する。
+      // TODO(Phase2): オンライン復帰時に local uid → Firebase uid の突合/移行を実装する。
+      try {
+        const restored = await localAuthProvider.init();
+        const user = restored ?? (await localAuthProvider.signIn());
+        set({ user, status: 'authenticated' });
+      } catch {
+        set({ user: null, status: 'error' });
+      }
     }
   },
   signOut: async () => {
