@@ -4,8 +4,10 @@ import { useNetInfo } from '@react-native-community/netinfo';
 
 import { useDiaryFlowNavigation } from '../../../app/navigation/hooks';
 import { useDraftStore } from '../../../stores/draftStore';
+import { useEntriesStore } from '../../../stores/entriesStore';
 import { useGenerateDiary, useAdjustDiary } from '../../../hooks/useDiaryGeneration';
 import type { AdjustInstruction, GenerateDiaryResponse } from '../../../services/diaryApi';
+import { makeId } from '../../../utils/id';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { StepProgress } from '../../../components/StepProgress';
 import { PrimaryButton } from '../../../components/PrimaryButton';
@@ -13,7 +15,7 @@ import { NoteCard } from '../../../components/NoteCard';
 import { Orb } from '../../../components/Orb';
 import { LitOverlay } from '../../../components/LitOverlay';
 import { colors, fonts, moodColor, moodLabel, radius, spacing } from '../../../theme';
-import type { DiaryWord } from '../../../types/diary';
+import type { DiaryEntry, DiaryWord } from '../../../types/diary';
 import { todayISO } from '../../../utils/date';
 
 const ADJUSTMENTS: { label: string; instruction: AdjustInstruction }[] = [
@@ -28,6 +30,7 @@ export function PreviewScreen() {
   const mood = useDraftStore((s) => s.mood);
   const words = useDraftStore((s) => s.words);
   const reset = useDraftStore((s) => s.reset);
+  const addEntry = useEntriesStore((s) => s.addEntry);
 
   const netInfo = useNetInfo();
   const isOffline = netInfo.isConnected === false;
@@ -66,10 +69,19 @@ export function PreviewScreen() {
   const onSave = () => {
     if (!display || saving) return;
     setSaving(true);
-    // TODO(Phase2): Firestore users/{uid}/entries へ保存（data.md 3.2, api-contract.md 第4章）。
-    //   保存時に draftStore.setBodyText/setMoodLevel の永続化を配線し、
-    //   保存失敗時は「下書き保持＋再試行」の分岐を実装する（screen.md 3.5）。
-    //   現状はローカル完結・常に成功。保存完了として「灯」の演出へ。
+    // Phase1: 端末ローカル（entriesStore）へ保存。
+    // TODO(Phase2): Firestore users/{uid}/entries へ保存し、失敗時は「下書き保持＋再試行」を実装（screen.md 3.5）。
+    const now = new Date().toISOString();
+    const entry: DiaryEntry = {
+      id: makeId(),
+      date,
+      mood: display.mood,
+      words: requestWords,
+      bodyText: display.bodyText,
+      createdAt: now,
+      updatedAt: now,
+    };
+    addEntry(entry);
     setTimeout(() => {
       setSaving(false);
       setLit(true);
