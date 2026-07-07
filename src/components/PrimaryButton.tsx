@@ -7,19 +7,23 @@ interface PrimaryButtonProps {
   label: string;
   onPress: () => void;
   variant?: 'primary' | 'ghost';
+  disabled?: boolean;
 }
 
 // visual-design.html の .primary-btn / .ghost-btn に対応。
-export function PrimaryButton({ label, onPress, variant = 'primary' }: PrimaryButtonProps) {
+export function PrimaryButton({ label, onPress, variant = 'primary', disabled = false }: PrimaryButtonProps) {
   const isPrimary = variant === 'primary';
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.base,
         isPrimary ? styles.primary : styles.ghost,
         pressed && styles.pressed,
+        disabled && styles.disabled,
       ]}
     >
       <Text style={[styles.label, isPrimary ? styles.primaryLabel : styles.ghostLabel]}>{label}</Text>
@@ -32,6 +36,7 @@ const styles = StyleSheet.create({
   primary: { backgroundColor: colors.dusk },
   ghost: { backgroundColor: colors.paperSoft, borderWidth: 1, borderColor: colors.line },
   pressed: { opacity: 0.85 },
+  disabled: { opacity: 0.5 },
   label: { fontFamily: fonts.uiBold, fontSize: 14 },
   primaryLabel: { color: '#ffffff' },
   ghostLabel: { color: colors.inkSoft },
