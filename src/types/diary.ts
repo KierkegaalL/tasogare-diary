@@ -28,3 +28,12 @@ export interface DiaryEntry extends Required<Pick<DiaryDraft, 'words' | 'bodyTex
   createdAt: string;
   updatedAt: string;
 }
+
+// AI対話メッセージ（data.md 3.3 messages）。UI 由来のロール ai/me を用いる。
+export type ChatRole = 'ai' | 'me';
+export interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  text: string;
+  createdAt: string;
+}
