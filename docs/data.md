@@ -82,6 +82,8 @@ erDiagram
 ## 3. スキーマ定義
 
 > 型は Firestore の論理型。`timestamp` はサーバタイムスタンプ、`date` は文字列 `YYYY-MM-DD`（端末ローカル日付、カレンダー突き合わせ用）。全ドキュメントに `schemaVersion:(number)` を持たせ将来のマイグレーションに備える。
+>
+> **実装メモ（Phase2）**: クライアント型（`entries`/`messages`）は現状 `schemaVersion` を持たない（未実装）。マイグレーションが必要になった時点で、クライアント型・`localXxxRepository`・`firestoreXxxRepository` に追加する。
 
 ### 3.1 `users/{uid}`
 | フィールド | 型 | 必須 | 説明 |
