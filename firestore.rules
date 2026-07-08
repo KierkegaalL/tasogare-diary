@@ -1,0 +1,37 @@
+rules_version = '2';
+// たそがれ日記 Firestore セキュリティルール（data.md 第6章）。
+// 全データは uid スコープで本人のみ read/write（最小権限）。
+// 集計（wordStats）・インサイト（insights）・ペアリング照合は Admin SDK（Functions）のみ書込。
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      match /entries/{entryId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+
+        match /messages/{messageId} {
+          allow read, write: if request.auth != null && request.auth.uid == uid;
+        }
+      }
+
+      // 集計・インサイトはサーバ（Functions/Admin）生成。クライアントは read のみ。
+      match /wordStats/{word} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+      match /insights/{periodId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    // ペアリング: 本人が自分の token を作成のみ。読取/消費は Functions(Admin)。
+    match /pairings/{token} {
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+      allow read, update, delete: if false;
+    }
+  }
+}

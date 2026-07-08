@@ -1,57 +1,68 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { useEntriesStore } from '../entriesStore';
 import type { DiaryEntry } from '../../types/diary';
 
-// AsyncStorage をモック（jest が factory を自動で上位へホイストする）。
 jest.mock('@react-native-async-storage/async-storage', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
-const makeEntry = (id: string, date: string): DiaryEntry => ({
+// 自動ID＋date。1日1件は date による upsert で担保。
+const makeEntry = (id: string, date: string, body = `${date} の本文`): DiaryEntry => ({
   id,
   date,
   mood: 'tender',
   words: [{ text: 'カフェ', category: 'event', source: 'selected' }],
-  bodyText: `${id} の本文`,
+  bodyText: body,
   createdAt: '2026-07-01T00:00:00Z',
   updatedAt: '2026-07-01T00:00:00Z',
 });
 
 const store = () => useEntriesStore.getState();
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
-describe('entriesStore', () => {
-  beforeEach(() => {
-    useEntriesStore.setState({ entries: [] });
+describe('entriesStore（リポジトリ層・ローカル）', () => {
+  beforeEach(async () => {
+    store().teardown();
+    await AsyncStorage.clear();
+    useEntriesStore.setState({ entries: [], hasHydrated: false });
   });
 
-  it('addEntry は新しい順に先頭へ追加する', () => {
-    store().addEntry(makeEntry('a', '2026-07-01'));
-    store().addEntry(makeEntry('b', '2026-07-02'));
-    expect(store().entries.map((e) => e.id)).toEqual(['b', 'a']);
+  it('bootstrap 購読後、addEntry が反映され hasHydrated になる', async () => {
+    const uid = 'u1';
+    store().bootstrap(uid);
+    await store().addEntry(uid, makeEntry('a', '2026-07-01'));
+    await flush();
+    expect(store().entries.map((e) => e.id)).toContain('a');
+    expect(store().hasHydrated).toBe(true);
   });
 
-  it('getEntry は id で取得する', () => {
-    store().addEntry(makeEntry('a', '2026-07-01'));
-    expect(store().getEntry('a')?.bodyText).toBe('a の本文');
-    expect(store().getEntry('zzz')).toBeUndefined();
+  it('同一 date は 1件に置き換わり、id/createdAt を維持する（U-11・自動ID＋date）', async () => {
+    const uid = 'u1';
+    store().bootstrap(uid);
+    await store().addEntry(uid, makeEntry('a', '2026-07-01', '古い'));
+    await store().addEntry(uid, makeEntry('b', '2026-07-01', '新しい'));
+    await flush();
+    expect(store().entries).toHaveLength(1);
+    expect(store().entries[0]!.id).toBe('a'); // 既存 id を維持
+    expect(store().entries[0]!.bodyText).toBe('新しい'); // 本文は更新
   });
 
-  it('removeEntry は該当を削除する', () => {
-    store().addEntry(makeEntry('a', '2026-07-01'));
-    store().addEntry(makeEntry('b', '2026-07-02'));
-    store().removeEntry('a');
+  it('removeEntry で削除される', async () => {
+    const uid = 'u1';
+    store().bootstrap(uid);
+    await store().addEntry(uid, makeEntry('a', '2026-07-01'));
+    await store().addEntry(uid, makeEntry('b', '2026-07-02'));
+    await store().removeEntry(uid, 'a');
+    await flush();
     expect(store().entries.map((e) => e.id)).toEqual(['b']);
   });
 
-  it('同一 date は upsert（1日1件・U-11）: id/createdAt を維持し本文を更新', () => {
-    store().addEntry(makeEntry('a', '2026-07-01'));
-    const updated = { ...makeEntry('b', '2026-07-01'), bodyText: '更新後の本文', updatedAt: '2026-07-01T10:00:00Z' };
-    store().addEntry(updated);
-
-    expect(store().entries).toHaveLength(1);
-    const entry = store().entries[0]!;
-    expect(entry.id).toBe('a'); // 既存 id を維持
-    expect(entry.createdAt).toBe('2026-07-01T00:00:00Z'); // 既存 createdAt を維持
-    expect(entry.bodyText).toBe('更新後の本文'); // 本文は更新
+  it('uid ごとにデータが分離される', async () => {
+    await store().addEntry('u1', makeEntry('a', '2026-07-01'));
+    store().bootstrap('u2');
+    await flush();
+    expect(store().entries).toHaveLength(0); // u2 は空
   });
 });

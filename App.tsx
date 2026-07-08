@@ -12,6 +12,7 @@ import {
 import { AppProviders } from './src/app/providers/AppProviders';
 import { RootNavigator } from './src/app/navigation/RootNavigator';
 import { useAuthStore } from './src/stores/authStore';
+import { useEntriesStore } from './src/stores/entriesStore';
 import { colors, fonts } from './src/theme';
 
 export default function App() {
@@ -25,10 +26,19 @@ export default function App() {
 
   const status = useAuthStore((s) => s.status);
   const initialize = useAuthStore((s) => s.initialize);
+  const uid = useAuthStore((s) => s.user?.uid);
+  const bootstrapEntries = useEntriesStore((s) => s.bootstrap);
+  const teardownEntries = useEntriesStore((s) => s.teardown);
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  // 認証確立後、uid スコープで日記の購読を開始する。uid 喪失時は購読解除＋表示クリア。
+  useEffect(() => {
+    if (uid) bootstrapEntries(uid);
+    else teardownEntries();
+  }, [uid, bootstrapEntries, teardownEntries]);
 
   if (!fontsLoaded || status === 'loading') {
     return (

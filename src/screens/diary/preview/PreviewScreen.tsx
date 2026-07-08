@@ -5,6 +5,7 @@ import { useNetInfo } from '@react-native-community/netinfo';
 import { useDiaryFlowNavigation } from '../../../app/navigation/hooks';
 import { useDraftStore } from '../../../stores/draftStore';
 import { useEntriesStore } from '../../../stores/entriesStore';
+import { useAuthStore } from '../../../stores/authStore';
 import { useGenerateDiary, useAdjustDiary } from '../../../hooks/useDiaryGeneration';
 import type { AdjustInstruction, GenerateDiaryResponse } from '../../../services/diaryApi';
 import { makeId } from '../../../utils/id';
@@ -31,6 +32,7 @@ export function PreviewScreen() {
   const words = useDraftStore((s) => s.words);
   const reset = useDraftStore((s) => s.reset);
   const addEntry = useEntriesStore((s) => s.addEntry);
+  const uid = useAuthStore((s) => s.user?.uid);
 
   const netInfo = useNetInfo();
   const isOffline = netInfo.isConnected === false;
@@ -67,10 +69,11 @@ export function PreviewScreen() {
   };
 
   const onSave = () => {
-    if (!display || saving) return;
+    if (!display || saving || !uid) return;
     setSaving(true);
-    // Phase1: 端末ローカル（entriesStore）へ保存。
-    // TODO(Phase2): Firestore users/{uid}/entries へ保存し、失敗時は「下書き保持＋再試行」を実装（screen.md 3.5）。
+    // リポジトリ層（ローカル/Firestore）へ保存。id は自動生成、1日1件（U-11）は date による
+    // upsert で担保する（data.md 3.2: 自動ID＋date、スキーマは複数許容のまま）。
+    // TODO: 保存失敗時の「下書き保持＋再試行」（screen.md 3.5）。
     const now = new Date().toISOString();
     const entry: DiaryEntry = {
       id: makeId(),
@@ -81,7 +84,7 @@ export function PreviewScreen() {
       createdAt: now,
       updatedAt: now,
     };
-    addEntry(entry);
+    void addEntry(uid, entry);
     setTimeout(() => {
       setSaving(false);
       setLit(true);
