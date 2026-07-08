@@ -154,7 +154,7 @@ stateDiagram-v2
 
 **認証プロバイダの抽象（Phase2 Auth）**: 認証は `AuthProvider` インターフェース（`init`/`signIn`/`signOut`）で抽象化し、実装を差し替える。
 - **ローカル匿名プロバイダ（既定）**: 端末に uid を発行・永続（AsyncStorage）。モバイルはログイン画面を持たず、uid を自動確立する（visual-design.html のとおり、サインインは「Webで見る」/バックアップ時のみ）。
-- **Firebase プロバイダ**: `EXPO_PUBLIC_FIREBASE_*` 設定を検出したら切り替える。配布しない前提のため既定は **匿名認証（Firebase Auth Anonymous、JS SDK）** ＝ 開発ビルド不要・Expo Go 可で実 uid を確立する。uid は Firestore（entries/messages）のスコープに用いる。設定プロバイダ失敗時（例: 初回起動オフライン）は authStore がローカル匿名へフォールバックする。Apple/Google サインインは恒久アカウントが要る段階（Webで見る/バックアップ）で匿名アカウントへ **リンク昇格** する。
+- **Firebase プロバイダ**: `EXPO_PUBLIC_FIREBASE_*` 設定を検出したら切り替える。**当面は配布しない**前提のため既定は **匿名認証（Firebase Auth Anonymous、JS SDK）** ＝ 開発ビルド不要・Expo Go 可で実 uid を確立する。uid は Firestore（entries/messages）のスコープに用いる。設定プロバイダ失敗時（例: 初回起動オフライン）は authStore がローカル匿名へフォールバックする。**将来、任意のタイミングでアプリ配布も考慮**しており、その際は恒久アカウント（Webで見る/バックアップ）向けに Apple/Google サインインを匿名アカウントへ **リンク昇格** する。
 
 ### 4.3 下書き（オフライン）永続
 - **推奨**: `react-native-mmkv`（同期・高速）に `draftStore` を永続化。案B: `AsyncStorage`（標準・非同期）。
@@ -231,6 +231,8 @@ sequenceDiagram
   Q-->>U: 一覧/詳細へ反映
 ```
 - 入力途中はネット不要（`draftStore`）。Claude を要する処理（連想・生成・対話・まとめ）はネット必須で、オフライン時は明示（`constraints.md`）。
+- **データ永続はリポジトリ層で抽象化**（`services/repository`）。Firebase 未設定時はローカル（AsyncStorage）、設定時は Firestore（`users/{uid}/entries`）に切り替わる。
+- **Firestore のオフライン永続（RN 制約）**: Firebase JS SDK は RN で IndexedDB を使えず**メモリキャッシュ中心**（`experimentalForceLongPolling` を有効化）。`constraints.md` が求める本格的なオフライン永続は、必要になった段階で **`@react-native-firebase`（ネイティブ）** への移行で対応する（残タスク）。当面のオフライン下書き継続は `draftStore`（端末ローカル）で担保する。
 
 ---
 

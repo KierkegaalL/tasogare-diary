@@ -45,7 +45,7 @@
 
 ## Firebase クライアント設定（Phase2・匿名認証）
 
-配布しない前提のため、認証は **Firebase 匿名認証（JS SDK）** を採用（開発ビルド／Apple Developer Program 不要・Expo Go 可）。
+**当面はアプリ配布しない**前提のため、認証は **Firebase 匿名認証（JS SDK）** を採用（開発ビルド／Apple Developer Program 不要・Expo Go 可）。ただし**将来、任意のタイミングでアプリ配布も考慮する**ため、認証は差し替え可能なプロバイダ抽象で実装し、配布時に Apple/Google サインイン（匿名アカウントへのリンク昇格）へ拡張できるようにしておく。
 
 - クライアント設定は環境変数 `EXPO_PUBLIC_FIREBASE_*` から読み込む（[.env.example](../../.env.example)、`src/services/firebase/config.ts`）。**公開可能なクライアント値のみ**で、シークレットは含めない。
 - 値が揃うと `isFirebaseConfigured=true` となり、認証がローカル匿名 → Firebase 匿名認証へ自動で切り替わる（`src/services/auth`）。
