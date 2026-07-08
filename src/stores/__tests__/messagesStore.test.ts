@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { useMessagesStore } from '../messagesStore';
 import type { ChatMessage } from '../../types/diary';
 
@@ -15,30 +17,56 @@ const msg = (id: string, role: ChatMessage['role'], text: string): ChatMessage =
 });
 
 const store = () => useMessagesStore.getState();
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
-describe('messagesStore', () => {
-  beforeEach(() => {
-    useMessagesStore.setState({ messagesByEntry: {} });
+describe('messagesStore（リポジトリ層・ローカル）', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    useMessagesStore.setState({ messagesByEntry: {}, hydratedEntries: {} });
   });
 
-  it('addMessage はエントリごとに順番に追加する', () => {
-    store().addMessage('e1', msg('m1', 'ai', 'こんにちは'));
-    store().addMessage('e1', msg('m2', 'me', 'うん'));
-    expect(store().getMessages('e1').map((m) => m.id)).toEqual(['m1', 'm2']);
+  it('bootstrap 購読後、addMessage が順番に反映される', async () => {
+    const uid = 'u1';
+    const entryId = 'e1';
+    store().bootstrap(uid, entryId);
+    await store().addMessage(uid, entryId, msg('m1', 'ai', 'こんにちは'));
+    await store().addMessage(uid, entryId, msg('m2', 'me', 'うん'));
+    await flush();
+    expect(store().messagesByEntry[entryId]?.map((m) => m.id)).toEqual(['m1', 'm2']);
+    expect(store().hydratedEntries[entryId]).toBe(true);
   });
 
-  it('エントリごとに独立している', () => {
-    store().addMessage('e1', msg('m1', 'ai', 'a'));
-    store().addMessage('e2', msg('m2', 'ai', 'b'));
-    expect(store().getMessages('e1')).toHaveLength(1);
-    expect(store().getMessages('e2')).toHaveLength(1);
-    expect(store().getMessages('none')).toEqual([]);
+  it('entryId ごとに独立している', async () => {
+    store().bootstrap('u1', 'e1');
+    store().bootstrap('u1', 'e2');
+    await store().addMessage('u1', 'e1', msg('m1', 'ai', 'a'));
+    await store().addMessage('u1', 'e2', msg('m2', 'ai', 'b'));
+    await flush();
+    expect(store().messagesByEntry['e1']).toHaveLength(1);
+    expect(store().messagesByEntry['e2']).toHaveLength(1);
   });
 
-  it('removeMessage は該当メッセージを削除する（送信失敗時のロールバック）', () => {
-    store().addMessage('e1', msg('m1', 'ai', 'a'));
-    store().addMessage('e1', msg('m2', 'me', 'b'));
-    store().removeMessage('e1', 'm2');
-    expect(store().getMessages('e1').map((m) => m.id)).toEqual(['m1']);
+  it('removeMessage は該当メッセージを削除する（送信失敗時のロールバック）', async () => {
+    const uid = 'u1';
+    const entryId = 'e1';
+    store().bootstrap(uid, entryId);
+    await store().addMessage(uid, entryId, msg('m1', 'ai', 'a'));
+    await store().addMessage(uid, entryId, msg('m2', 'me', 'b'));
+    await store().removeMessage(uid, entryId, 'm2');
+    await flush();
+    expect(store().messagesByEntry[entryId]?.map((m) => m.id)).toEqual(['m1']);
+  });
+
+  it('teardown は購読解除し、当該 entryId の状態をクリアする', async () => {
+    const uid = 'u1';
+    const entryId = 'e1';
+    store().bootstrap(uid, entryId);
+    await store().addMessage(uid, entryId, msg('m1', 'ai', 'a'));
+    await flush();
+    expect(store().messagesByEntry[entryId]).toHaveLength(1);
+
+    store().teardown(entryId);
+    expect(store().messagesByEntry[entryId]).toBeUndefined();
+    expect(store().hydratedEntries[entryId]).toBeUndefined();
   });
 });

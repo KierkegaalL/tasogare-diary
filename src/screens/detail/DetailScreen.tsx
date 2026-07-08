@@ -16,6 +16,7 @@ import type { RouteProp } from '@react-navigation/native';
 
 import type { RootStackParamList } from '../../app/navigation/types';
 import { useRootNavigation } from '../../app/navigation/hooks';
+import { useAuthStore } from '../../stores/authStore';
 import { useEntriesStore } from '../../stores/entriesStore';
 import { useMessagesStore } from '../../stores/messagesStore';
 import { useChat } from '../../hooks/useChat';
@@ -47,11 +48,21 @@ export function DetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'Detail'>>();
   const entryId = route.params.entryId;
   const entry = useEntriesStore((s) => s.entries.find((e) => e.id === entryId));
+  const uid = useAuthStore((s) => s.user?.uid);
 
   const messages = useMessagesStore((s) => s.messagesByEntry[entryId]) ?? EMPTY_MESSAGES;
   const addMessage = useMessagesStore((s) => s.addMessage);
   const removeMessage = useMessagesStore((s) => s.removeMessage);
-  const hasHydrated = useMessagesStore((s) => s.hasHydrated);
+  const hasHydrated = useMessagesStore((s) => s.hydratedEntries[entryId] ?? false);
+  const bootstrapMessages = useMessagesStore((s) => s.bootstrap);
+  const teardownMessages = useMessagesStore((s) => s.teardown);
+
+  // entryId の対話を購読（uid スコープ）。画面を離れたら購読解除。
+  useEffect(() => {
+    if (!uid) return;
+    bootstrapMessages(uid, entryId);
+    return () => teardownMessages(entryId);
+  }, [uid, entryId, bootstrapMessages, teardownMessages]);
 
   const netInfo = useNetInfo();
   const isOffline = netInfo.isConnected === false;
@@ -67,40 +78,52 @@ export function DetailScreen() {
 
   // 空対話時に AI の最初の問いかけを生成する（screen.md 3.8）。
   const runOpening = useCallback(() => {
-    if (!entry) return;
+    if (!entry || !uid) return;
     setOpeningError(false);
     openingRequested.current = true;
     chatOpening({ mood: entry.mood, bodyText: entry.bodyText })
-      .then((res) => addMessage(entryId, createMessage('ai', res.reply)))
+      .then((res) => addMessage(uid, entryId, createMessage('ai', res.reply)))
       .catch(() => {
         openingRequested.current = false;
         setOpeningError(true);
       });
-  }, [entry, entryId, addMessage]);
+  }, [entry, uid, entryId, addMessage]);
 
   useEffect(() => {
     // 永続化の再水和が完了するまでは判定を保留（過去会話の重複 opening を防ぐ）。
-    if (!hasHydrated || !entry || isOffline) return;
+    if (!hasHydrated || !entry || !uid || isOffline) return;
     if (messages.length > 0 || openingRequested.current) return;
     runOpening();
-  }, [hasHydrated, entry, isOffline, messages.length, runOpening]);
+  }, [hasHydrated, entry, uid, isOffline, messages.length, runOpening]);
 
   const onSend = () => {
     const trimmed = text.trim();
-    if (!trimmed || busy || !entry) return;
+    if (!trimmed || busy || !entry || !uid) return;
     setSendError(false);
     setText('');
     const meMessage = createMessage('me', trimmed);
-    addMessage(entryId, meMessage);
+    void addMessage(uid, entryId, meMessage).catch(() => {
+      // 楽観追加自体の永続化失敗。購読には反映されないため入力を復元するのみで足りる。
+      setText(trimmed);
+      setSendError(true);
+    });
     // history は自分の発話を加える前の直近 N 往復。
     const history = messages.slice(-HISTORY_LIMIT).map((m) => ({ role: m.role, text: m.text }));
     chatMutation.mutate(
       { entryId, message: trimmed, history },
       {
-        onSuccess: (res) => addMessage(entryId, createMessage('ai', res.reply)),
+        onSuccess: (res) => {
+          void addMessage(uid, entryId, createMessage('ai', res.reply)).catch(() =>
+            console.warn('[chat] AI応答の保存に失敗しました'),
+          );
+        },
         onError: () => {
           // 失敗: 楽観追加した自分の発話を取り消し、入力を復元して再試行できるようにする。
-          removeMessage(entryId, meMessage.id);
+          // ロールバック自体が失敗しても（オフライン等）UIには反映済みメッセージが残るのみで、
+          // 次回のオンライン復帰時に再試行可能な状態は保たれる。
+          void removeMessage(uid, entryId, meMessage.id).catch(() =>
+            console.warn('[chat] 送信失敗メッセージの取り消しに失敗しました'),
+          );
           setText(trimmed);
           setSendError(true);
         },
