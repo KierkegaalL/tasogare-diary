@@ -30,6 +30,7 @@ export function PreviewScreen() {
   const navigation = useDiaryFlowNavigation();
   const mood = useDraftStore((s) => s.mood);
   const words = useDraftStore((s) => s.words);
+  const awareness = useDraftStore((s) => s.awareness);
   const reset = useDraftStore((s) => s.reset);
   const addEntry = useEntriesStore((s) => s.addEntry);
   const uid = useAuthStore((s) => s.user?.uid);
@@ -51,6 +52,7 @@ export function PreviewScreen() {
 
   const busy = gen.isLoading || gen.isFetching || adjust.isPending;
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const [lit, setLit] = useState(false);
 
   const onAdjust = (instruction: AdjustInstruction) => {
@@ -68,12 +70,13 @@ export function PreviewScreen() {
     );
   };
 
-  const onSave = () => {
+  const onSave = async () => {
     if (!display || saving || !uid) return;
     setSaving(true);
+    setSaveError(false);
     // リポジトリ層（ローカル/Firestore）へ保存。id は自動生成、1日1件（U-11）は date による
     // upsert で担保する（data.md 3.2: 自動ID＋date、スキーマは複数許容のまま）。
-    // TODO: 保存失敗時の「下書き保持＋再試行」（screen.md 3.5）。
+    // 失敗時は下書き（draftStore）を保持したまま再試行できるようにする（screen.md 3.5）。
     const now = new Date().toISOString();
     const entry: DiaryEntry = {
       id: makeId(),
@@ -81,14 +84,18 @@ export function PreviewScreen() {
       mood: display.mood,
       words: requestWords,
       bodyText: display.bodyText,
+      ...(awareness ? { awareness } : {}),
       createdAt: now,
       updatedAt: now,
     };
-    void addEntry(uid, entry);
-    setTimeout(() => {
+    try {
+      await addEntry(uid, entry);
       setSaving(false);
       setLit(true);
-    }, 400);
+    } catch {
+      setSaving(false);
+      setSaveError(true);
+    }
   };
 
   const onLitDone = useCallback(() => {
@@ -97,7 +104,7 @@ export function PreviewScreen() {
   }, [reset, navigation]);
 
   if (lit) {
-    return <LitOverlay mood={display?.mood ?? null} onDone={onLitDone} />;
+    return <LitOverlay mood={display?.mood ?? null} awareness={awareness} onDone={onLitDone} />;
   }
 
   const moodText = display?.mood ? `${moodLabel(display.mood)}の一日` : '今日の記録';
@@ -150,8 +157,14 @@ export function PreviewScreen() {
               </View>
             </View>
 
+            {saveError ? (
+              <Text style={styles.stateText}>
+                保存に失敗しました。下書きは保持されています。もう一度お試しください。
+              </Text>
+            ) : null}
+
             <PrimaryButton
-              label={saving ? '保存中…' : '保存する'}
+              label={saving ? '保存中…' : saveError ? 'もう一度保存する' : '保存する'}
               onPress={onSave}
               disabled={busy || saving}
             />

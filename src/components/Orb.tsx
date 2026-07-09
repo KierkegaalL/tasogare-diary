@@ -1,55 +1,46 @@
-import React, { useEffect, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, StyleSheet } from 'react-native';
+import React, { useEffect, useId } from 'react';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
+import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
 
 import { colors, motion } from '../theme';
 
 interface OrbProps {
   size?: number;
-  /** オーブの基調色（感情色を渡す。既定はたそがれ紫）。 */
+  /**
+   * 感情色を渡すと「感情別の小オーブ」配色（白ハイライト→単色、architecture.md 8.1）になる。
+   * 未指定時はホーム大オーブの既定配色（calm→tender→dusk の3色グラデーション）になる。
+   */
   color?: string;
 }
 
 // 「こころの灯」オーブ（呼吸するサイン）。
-// architecture.md 第8章: breathe scale 1↔1.055 / 4.8s。reduced-motion で停止。
-// NOTE: 本スキャフォールドは組み込み Animated + 単色近似で実装。
-//       本番のラジアルグラデーション/UIスレッド駆動（reanimated）は実装フェーズで差し替える。
-export function Orb({ size = 104, color = colors.dusk }: OrbProps) {
-  // 安定した Animated.Value を1度だけ生成（React 19: レンダー中の ref アクセスを避ける）。
-  const [scale] = useState(() => new Animated.Value(motion.breathe.scaleFrom));
+// architecture.md 8.1: breathe scale 1↔1.055 / 4.8s ease-in-out、UIスレッド駆動（react-native-reanimated）。
+// 塗りは react-native-svg の RadialGradient で visual-design.html の radial-gradient を再現する。
+export function Orb({ size = 104, color }: OrbProps) {
+  const gradientId = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const scale = useSharedValue<number>(motion.breathe.scaleFrom);
 
   useEffect(() => {
-    let loop: Animated.CompositeAnimation | undefined;
-
-    const startBreathe = () => {
-      const half = motion.breathe.durationMs / 2;
-      loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(scale, {
-            toValue: motion.breathe.scaleTo,
-            duration: half,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(scale, {
-            toValue: motion.breathe.scaleFrom,
-            duration: half,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ]),
-      );
-      loop.start();
-    };
-
-    const stopBreathe = () => {
-      loop?.stop();
-      loop = undefined;
-      scale.setValue(motion.breathe.scaleFrom);
-    };
-
     const apply = (reduceMotion: boolean) => {
-      stopBreathe();
-      if (!reduceMotion) startBreathe();
+      cancelAnimation(scale);
+      if (reduceMotion) {
+        scale.value = motion.breathe.scaleFrom;
+        return;
+      }
+      const half = motion.breathe.durationMs / 2;
+      scale.value = withRepeat(
+        withTiming(motion.breathe.scaleTo, { duration: half, easing: Easing.inOut(Easing.ease) }),
+        -1,
+        true,
+      );
     };
 
     let cancelled = false;
@@ -62,26 +53,49 @@ export function Orb({ size = 104, color = colors.dusk }: OrbProps) {
     return () => {
       cancelled = true;
       sub.remove();
-      stopBreathe();
+      cancelAnimation(scale);
     };
   }, [scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
   return (
     <Animated.View
       accessibilityRole="image"
       accessibilityLabel="こころの灯"
-      style={[
-        styles.orb,
-        { width: size, height: size, borderRadius: size / 2, backgroundColor: color },
-        { transform: [{ scale }] },
-      ]}
-    />
+      style={[styles.orb, { width: size, height: size }, animatedStyle]}
+    >
+      <Svg width={size} height={size} viewBox="0 0 100 100">
+        <Defs>
+          {color ? (
+            // 感情別の小オーブ: radial-gradient(circle at 35% 30%, #fff8, <感情色>)
+            <RadialGradient id={gradientId} cx="35%" cy="30%" r="75%">
+              <Stop offset="0%" stopColor="#ffffff" stopOpacity={0.53} />
+              <Stop offset="100%" stopColor={color} stopOpacity={1} />
+            </RadialGradient>
+          ) : (
+            // ホーム大オーブ: radial-gradient(circle at 32% 28%, #ffffffaa 0%, calm 0%, tender 55%, dusk 100%)
+            // 原文は白と calm が同一 0% だが、SVG は同一オフセットで後勝ちのため白が不可視になる。
+            // ハイライトの意図（起点が白であること）を再現するため、白の終端にごく僅かな幅を持たせる
+            // （architecture.md 8.1: 「実装時にグラデーションの意図を確認しつつ再現する」に対応）。
+            <RadialGradient id={gradientId} cx="32%" cy="28%" r="75%">
+              <Stop offset="0%" stopColor="#ffffff" stopOpacity={0.667} />
+              <Stop offset="6%" stopColor={colors.calm} stopOpacity={1} />
+              <Stop offset="55%" stopColor={colors.tender} stopOpacity={1} />
+              <Stop offset="100%" stopColor={colors.dusk} stopOpacity={1} />
+            </RadialGradient>
+          )}
+        </Defs>
+        <Circle cx="50" cy="50" r="50" fill={`url(#${gradientId})`} />
+      </Svg>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   orb: {
-    // 単色近似のハイライト（簡易）。本番はラジアルグラデーションに置換。
     shadowColor: colors.duskDeep,
     shadowOpacity: 0.25,
     shadowRadius: 18,

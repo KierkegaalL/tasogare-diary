@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNetInfo } from '@react-native-community/netinfo';
+import { useShallow } from 'zustand/react/shallow';
 
 import { useDiaryFlowNavigation } from '../../../app/navigation/hooks';
 import { useDraftStore } from '../../../stores/draftStore';
@@ -21,7 +22,7 @@ export function WordsScreen() {
   const navigation = useDiaryFlowNavigation();
   const mood = useDraftStore((s) => s.mood);
   const eventWord = useDraftStore((s) => s.words.find((w) => w.category === 'event')?.text);
-  const assocWords = useDraftStore((s) => s.words.filter((w) => w.category === 'assoc'));
+  const assocWords = useDraftStore(useShallow((s) => s.words.filter((w) => w.category === 'assoc')));
   const addWord = useDraftStore((s) => s.addWord);
   const removeWord = useDraftStore((s) => s.removeWord);
   const setMood = useDraftStore((s) => s.setMood);
