@@ -12,6 +12,7 @@ import {
 import { AppProviders } from './src/app/providers/AppProviders';
 import { RootNavigator } from './src/app/navigation/RootNavigator';
 import { useAuthStore } from './src/stores/authStore';
+import { useDraftStore } from './src/stores/draftStore';
 import { useEntriesStore } from './src/stores/entriesStore';
 import { colors, fonts } from './src/theme';
 
@@ -29,6 +30,7 @@ export default function App() {
   const uid = useAuthStore((s) => s.user?.uid);
   const bootstrapEntries = useEntriesStore((s) => s.bootstrap);
   const teardownEntries = useEntriesStore((s) => s.teardown);
+  const draftHydrated = useDraftStore((s) => s.hasHydrated);
 
   useEffect(() => {
     initialize();
@@ -40,7 +42,7 @@ export default function App() {
     else teardownEntries();
   }, [uid, bootstrapEntries, teardownEntries]);
 
-  if (!fontsLoaded || status === 'loading') {
+  if (!fontsLoaded || status === 'loading' || !draftHydrated) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={colors.dusk} />

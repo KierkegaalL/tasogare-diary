@@ -11,7 +11,7 @@
 | ストア | 役割 | 備考 |
 |---|---|---|
 | **Firestore** | 確定データ（ユーザー・日記・ワード集計・対話・インサイト・ペアリング） | オフライン永続化を有効化。全データ uid スコープ |
-| **ローカル下書き（MMKV 想定）** | 4ステップ入力の途中状態 | Firestore に載せず端末内のみ。保存確定で Firestore へ（[architecture.md](architecture.md) 第4/7章） |
+| **ローカル下書き（AsyncStorage、実装済み）** | 4ステップ入力の途中状態 | Firestore に載せず端末内のみ。保存確定で Firestore へ。将来 MMKV へ差し替え可能な抽象（`services/storage.ts`）（[architecture.md](architecture.md) 第4.3/7章） |
 | **Cloud Functions（サーバ）** | Claude 仲介・集計・QR 照合・削除 | Claude API キーはここだけが保持（[constraints.md](../.claude/rules/constraints.md)） |
 
 > **原則**: 日記は極めてセンシティブ。全ドキュメントは本人（uid）のみアクセス可（第7章）。分析用の集計は最小限のフィールドに限定する。
@@ -250,7 +250,7 @@ service cloud.firestore {
 
 ## 8. オフライン・同期の整合
 
-- **下書き**: 4ステップ入力途中は MMKV の `draftStore`（Firestore に載せない）。オフライン継続可。
+- **下書き**: 4ステップ入力途中は `draftStore`（zustand persist、AsyncStorage 実装、Firestore に載せない）。オフライン継続可。
 - **確定エントリ**: Firestore に保存。オフライン永続化により、オフライン保存はローカルキューに積まれオンライン復帰で自動同期（[architecture.md](architecture.md) 第7章）。
 - **集計の整合**: `wordStats`/`insights` は Functions が確定エントリを基に更新するため、オフライン中は反映されない。オンライン同期後に更新される旨を UI で明示。
 - **競合**: 1ユーザー・単一端末書き込みが基本。複数端末同時編集は当面想定外（将来 U）。`updatedAt` は最終更新の**検知**用であり自動競合解決はしない（Firestore オフライン既定は last-write-wins）。複数端末同時編集を正式サポートする際に解決方式を別途設計する。
