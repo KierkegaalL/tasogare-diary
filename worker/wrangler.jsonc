@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tasogare-diary-claude-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+
+  // 公開可能な値のみ。GEMINI_API_KEY はここに書かず `wrangler secret put GEMINI_API_KEY` で登録する。
+  "vars": {
+    "FIREBASE_PROJECT_ID": "tasogare-diary-project"
+    // "GEMINI_MODEL_INTERACTIVE": "gemini-3.1-flash-lite",
+    // "GEMINI_MODEL_GENERATE": "gemini-3.5-flash"
+  }
+
+  // 環境ごとに分ける場合の例（dev/staging/prod）。実値は Cloudflare ダッシュボード or
+  // env 別の vars で管理する（environments.md）。
+  // "env": {
+  //   "staging": {
+  //     "name": "tasogare-diary-claude-proxy-staging",
+  //     "vars": { "FIREBASE_PROJECT_ID": "tasogare-diary-staging" }
+  //   }
+  // }
+}

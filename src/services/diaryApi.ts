@@ -1,9 +1,17 @@
 import type { ChatRole, DiaryWord, WordCategory } from '../types/diary';
 import type { MoodLevel } from '../theme/colors';
+import { isClaudeWorkerConfigured } from './claudeWorker/config';
+import * as mockApi from './diaryApi.mock';
 
 // Claude 連携（api-contract.md）のクライアント側 I/F。
-// 現段階は **モック実装**。実装フェーズで Firebase Functions（Callable）呼び出しに差し替える。
-// I/F（request/response 形）は api-contract.md 第3章に合わせている。
+// - 型（request/response 形）は api-contract.md 第3章に合わせる。
+// - 実装は Cloudflare Worker（Claude 連携プロキシ）の設定有無で切替える:
+//     未設定 → モック（diaryApi.mock.ts、ローカル完結）
+//     設定済 → Cloudflare Worker 経由の Claude 実接続（diaryApi.functions.ts）
+//   Firebase Blaze プランを使わず Spark プランを維持するため、Firebase Functions ではなく
+//   Cloudflare Workers 上のプロキシを利用する（environments.md）。呼び出しには Firebase ID
+//   トークンを使うため、Worker 利用時は isFirebaseConfigured も併せて true である前提。
+//   Worker 実装は firestore 同様、設定時のみ lazy-require する（未設定時に fetch 経路を読み込まない）。
 
 // ---- 型（api-contract.md 3.1 suggestWords）----
 export interface SuggestWordsRequest {
@@ -20,41 +28,6 @@ export interface WordSuggestion {
 export interface SuggestWordsResponse {
   suggestions: WordSuggestion[];
   promptVersion: string;
-}
-
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-// できごとに応じた連想の種。モックの説得力付けのための簡易辞書。
-const EVENT_HINTS: Record<string, string[]> = {
-  カフェ: ['コーヒー', '読書', 'ひとり時間'],
-  仕事: ['締め切り', '会議', '達成感'],
-  友達と: ['おしゃべり', '笑った', 'ひさしぶり'],
-  読書: ['物語', '静かな時間', 'コーヒー'],
-  家でゆっくり: ['休息', 'ぼんやり', '安心'],
-  外出: ['風', '歩いた', '気分転換'],
-};
-
-const BASE_SUGGESTIONS = ['晴れ', '頑張った', '少し我慢', '話せてよかった', 'いつもの場所', 'ひと息'];
-
-// モック: できごと＋気持ちから連想語（assoc）を返す。
-// 実サービスでは Functions がサーバ側で wordStats（過去傾向）を加味する。
-export async function suggestWords(req: SuggestWordsRequest): Promise<SuggestWordsResponse> {
-  await delay(600);
-
-  const exclude = new Set<string>([...req.selected, ...req.events, ...(req.mood ? [req.mood] : [])]);
-  const fromEvents = req.events.flatMap((e) => EVENT_HINTS[e] ?? []);
-  const ordered = [...fromEvents, ...BASE_SUGGESTIONS];
-
-  const seen = new Set<string>();
-  const suggestions: WordSuggestion[] = [];
-  for (const text of ordered) {
-    if (exclude.has(text) || seen.has(text)) continue;
-    seen.add(text);
-    suggestions.push({ text, category: 'assoc' });
-    if (suggestions.length >= 7) break;
-  }
-
-  return { suggestions, promptVersion: 'words-v1-mock' };
 }
 
 // ---- 型（api-contract.md 3.2 generateDiary / 3.3 adjustDiary）----
@@ -76,62 +49,6 @@ export interface AdjustDiaryRequest {
 }
 export type AdjustDiaryResponse = GenerateDiaryResponse;
 
-// 気持ちの語 → 感情ラベル（enum）の推定。実サービスでは Claude が推定する（api-contract.md 3.2）。
-const MOOD_ESTIMATE: Record<string, MoodLevel> = {
-  疲れた: 'tender',
-  もやもや: 'tender',
-  なんとなく: 'tender',
-  しんどい: 'heavy',
-  嬉しかった: 'calm',
-  穏やか: 'calm',
-  ホッとした: 'calm',
-};
-
-function estimateMood(words: DiaryWord[]): MoodLevel | null {
-  const moodWord = words.find((w) => w.category === 'mood')?.text;
-  if (!moodWord) return null;
-  return MOOD_ESTIMATE[moodWord] ?? 'tender';
-}
-
-// モック: 選択語群から日記本文＋推定感情ラベルを生成する（api-contract.md 3.2）。
-export async function generateDiary(req: GenerateDiaryRequest): Promise<GenerateDiaryResponse> {
-  await delay(800);
-
-  const moodWord = req.words.find((w) => w.category === 'mood')?.text;
-  const eventWord = req.words.find((w) => w.category === 'event')?.text;
-  const assoc = req.words.filter((w) => w.category === 'assoc').map((w) => w.text);
-
-  const segments: string[] = [];
-  if (eventWord) segments.push(`今日は${eventWord}で過ごした`);
-  if (assoc.length) segments.push(`${assoc.join('と')}が心に残っている`);
-  if (moodWord) segments.push(`${moodWord}気持ちの一日だった`);
-
-  const bodyText = segments.length > 0 ? `${segments.join('。')}。` : '静かな一日だった。';
-  return { bodyText, mood: estimateMood(req.words), promptVersion: 'diary-v1-mock' };
-}
-
-// モック: 本文を調整・再生成する（api-contract.md 3.3）。mood は変更しない（呼び出し側で維持）。
-export async function adjustDiary(req: AdjustDiaryRequest): Promise<AdjustDiaryResponse> {
-  await delay(600);
-
-  const trimmed = req.bodyText.replace(/。$/, '');
-  let bodyText = req.bodyText;
-  switch (req.instruction) {
-    case 'positive':
-      bodyText = `${trimmed}。それでも、悪くない一日だったと思う。`;
-      break;
-    case 'shorter': {
-      const first = req.bodyText.split('。').filter(Boolean)[0];
-      bodyText = first ? `${first}。` : req.bodyText;
-      break;
-    }
-    case 'detailed':
-      bodyText = `${trimmed}。ふとした時間に、その感覚を思い返していた。`;
-      break;
-  }
-  return { bodyText, mood: null, promptVersion: 'adjust-v1-mock' };
-}
-
 // ---- 型（api-contract.md 3.4 chat）----
 export interface ChatMessageIO {
   role: ChatRole;
@@ -147,37 +64,34 @@ export interface ChatResponse {
   promptVersion: string;
 }
 
-// 寄り添い応答の候補（診断・断定はしない: constraints.md / api-contract.md 3.4）。
-const CHAT_REPLIES = [
-  'そう感じていたんですね。話してくれてありがとうございます。',
-  'その気持ち、そのまま大切にしていいと思います。',
-  '少しずつで大丈夫です。無理はしないでくださいね。',
-  'そんな一日だったんですね。今は少し落ち着きましたか？',
-  'よく頑張った一日でしたね。ゆっくり休めますように。',
-];
-
-// モック: その日の記録を文脈に寄り添い応答を返す（api-contract.md 3.4）。
-export async function chat(req: ChatRequest): Promise<ChatResponse> {
-  await delay(700);
-  const index = req.message.trim().length % CHAT_REPLIES.length;
-  return { reply: CHAT_REPLIES[index] ?? CHAT_REPLIES[0]!, promptVersion: 'chat-v1-mock' };
+// Worker 実装は設定時のみ読み込む（未設定時は fetch 経路をバンドル/実行しない）。
+function workerApi(): typeof import('./diaryApi.functions') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('./diaryApi.functions') as typeof import('./diaryApi.functions');
 }
 
-// モック: 対話の最初の問いかけ（空対話時の AI 初回メッセージ）。
-export async function chatOpening(ctx: { mood: MoodLevel | null; bodyText: string }): Promise<ChatResponse> {
-  await delay(700);
-  const moodPart =
-    ctx.mood === 'heavy'
-      ? 'しんどい一日だったんですね。'
-      : ctx.mood === 'tender'
-        ? '少し疲れが残る一日だったのかもしれませんね。'
-        : ctx.mood === 'calm'
-          ? '穏やかな時間もあった一日ですね。'
-          : '';
-  return {
-    reply: `${moodPart}この日のこと、よかったら聞かせてください。今はどんな気持ちですか？`,
-    promptVersion: 'chat-opening-v1-mock',
-  };
+// ---- 公開関数（呼び出し側の I/F は不変。内部で mock / Worker を切替）----
+export function suggestWords(req: SuggestWordsRequest): Promise<SuggestWordsResponse> {
+  return isClaudeWorkerConfigured ? workerApi().suggestWords(req) : mockApi.suggestWords(req);
+}
+
+export function generateDiary(req: GenerateDiaryRequest): Promise<GenerateDiaryResponse> {
+  return isClaudeWorkerConfigured ? workerApi().generateDiary(req) : mockApi.generateDiary(req);
+}
+
+export function adjustDiary(req: AdjustDiaryRequest): Promise<AdjustDiaryResponse> {
+  return isClaudeWorkerConfigured ? workerApi().adjustDiary(req) : mockApi.adjustDiary(req);
+}
+
+export function chat(req: ChatRequest): Promise<ChatResponse> {
+  return isClaudeWorkerConfigured ? workerApi().chat(req) : mockApi.chat(req);
+}
+
+export function chatOpening(ctx: {
+  mood: MoodLevel | null;
+  bodyText: string;
+}): Promise<ChatResponse> {
+  return isClaudeWorkerConfigured ? workerApi().chatOpening(ctx) : mockApi.chatOpening(ctx);
 }
 
 // 型の再エクスポート（呼び出し側の利便のため）。

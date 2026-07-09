@@ -20,34 +20,35 @@ graph TD
   subgraph Web["Web ダッシュボード（振り返り専用）"]
     WUI["ダッシュボード/デバイス連携"]
   end
-  subgraph FB["Firebase"]
+  subgraph FB["Firebase（Sparkプラン）"]
     AUTH["Auth"]
     FS["Firestore（オフライン永続化）"]
-    FN["Cloud Functions"]
   end
-  CL["Claude API（api.anthropic.com）"]
+  WK["Cloudflare Worker（AI連携プロキシ）"]
+  CL["Gemini API（generativelanguage.googleapis.com）"]
 
   UI --> STORE --> SVC
   SVC --> AUTH
   SVC --> FS
-  SVC --> FN
+  SVC --> WK
   STORE --> LOCAL
   WUI --> AUTH
   WUI --> FS
-  WUI --> FN
-  FN -->|サーバ側のみ| CL
-  FN --> FS
+  WUI --> WK
+  WK -->|サーバ側のみ| CL
 ```
+
+> **実装メモ（Phase2）**: Firebase Blaze プラン回避のため、AI 連携は Firebase Functions（Cloud Functions）ではなく **Cloudflare Workers**（`worker/`）で実装している。Firebase は Auth/Firestore のみ（Spark プラン）。また、当初 Anthropic（Claude）を想定していたが、無料運用のため **Google Gemini API** に変更した（`worker/src/llm.ts`）。詳細は [environments.md](../.claude/rules/environments.md)、[api-contract.md](api-contract.md)、[worker/README.md](../worker/README.md)。
 
 ### 1.2 レイヤ責務（モバイル）
 | レイヤ | 責務 | 主なもの |
 |---|---|---|
 | 画面層 | 表示・入力・遷移 | `screens/`, `components/` |
 | 状態層 | 画面横断の状態・下書き・楽観更新 | `stores/`（下書き、認証、設定、日記キャッシュ） |
-| サービス層 | 外部I/Oの抽象化 | `services/firebase`, `services/functions`, `services/diary` |
+| サービス層 | 外部I/Oの抽象化 | `services/firebase`, `services/claudeWorker`, `services/diary` |
 | ローカル永続 | オフライン下書き | 下書きストア（後述） |
 
-> **原則**: 画面層は Claude API / Firestore を直接触らず、必ずサービス層を経由する。Claude API は Functions 経由のみ（`constraints.md`）。
+> **原則**: 画面層は AI API / Firestore を直接触らず、必ずサービス層を経由する。AI API はサーバ側プロキシ（Cloudflare Worker）経由のみ（`constraints.md`）。
 
 ---
 

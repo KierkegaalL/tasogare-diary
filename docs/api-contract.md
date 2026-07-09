@@ -1,47 +1,50 @@
 # たそがれ日記 詳細設計：API仕様（api-contract.md）
 
-> **位置づけ**: ステップ3（詳細設計）。[architecture.md](architecture.md) の構成、[data.md](data.md) のスキーマ、[screen.md](screen.md) の画面要件を前提に、**Firebase Functions のエンドポイント仕様**、**Claude API 連携のリクエスト/レスポンス**、**認証方式**を定義する。
+> **位置づけ**: ステップ3（詳細設計）。[architecture.md](architecture.md) の構成、[data.md](data.md) のスキーマ、[screen.md](screen.md) の画面要件を前提に、**AI 連携のエンドポイント仕様**、**リクエスト/レスポンス**、**認証方式**を定義する。
 > **要件の正**: Notion [たそがれ日記 要件定義書](https://app.notion.com/p/395cd5c5312e81b0b73fc2d95219b084)。
 > **技術選定**: 要件に明記が無いものは「案A/案B＋推奨」で提示し断定しない。
+> **実装メモ（Phase2）**: Firebase は **Spark プラン（無料枠）を維持**する方針のため、生成系（AI 連携）エンドポイントは Firebase Functions ではなく **Cloudflare Workers**（`worker/`）で実装している。Functions 前提で書かれた箇所（Callable・`context.auth` 等）は概念上の対応関係として読み替える（詳細は各節の実装メモ、[environments.md](../.claude/rules/environments.md)、[worker/README.md](../worker/README.md)）。
+> **実装メモ（LLM プロバイダ）**: 本書は Claude（Anthropic）前提で記述しているが、**無料運用を優先**し実装は **Google Gemini API** に変更している（U-12 は Gemini 前提に読み替え。[environments.md](../.claude/rules/environments.md) 参照）。将来 Anthropic 等の有料 API へ戻す可能性はあるが、その際も本書のインターフェース仕様（第3章）は変わらない想定。
 
 ---
 
 ## 1. 全体方針
 
-- **Claude API はクライアント直叩き禁止**。すべて **Firebase Functions を経由**する（[constraints.md](../.claude/rules/constraints.md)／[environments.md](../.claude/rules/environments.md)）。API キーは Functions の秘密（Secrets/config）にのみ保持。
-- **最小送信**: Claude へは応答生成に必要な最小限のみ送る。日記本文・送信ペイロード・個人特定情報を**ログに残さない**（第8章）。
+- **AI API はクライアント直叩き禁止**。すべて**サーバ側プロキシを経由**する（[constraints.md](../.claude/rules/constraints.md)／[environments.md](../.claude/rules/environments.md)）。API キーはプロキシの秘密（Secrets）にのみ保持。
+  - 実装（Phase2）: **Cloudflare Workers**（`worker/`）。Firebase Blaze プラン回避のため Firebase Functions は不採用。
+- **最小送信**: AI へは応答生成に必要な最小限のみ送る。日記本文・送信ペイロード・個人特定情報を**ログに残さない**（第8章）。
 - **冪等性**: 生成系は非冪等（都度生成）。書込系（保存・削除・ペアリング消費）は二重実行に耐える設計とする。
 
 ### 1.1 呼び出し方式（案・推奨）
-- **推奨**: **Callable Functions**（`httpsCallable`）。Firebase SDK が ID トークンを自動付与し、`context.auth` で uid を取得できる。CORS/認証の実装が簡潔。
-- 案B: `onRequest`（HTTP）＋ `Authorization: Bearer <IDトークン>` を手動検証。Web からの細かい制御が要る場合に選択。
-- 本書は Callable 前提で記述する（Web ダッシュボードも Firebase SDK 利用）。
+- 案A: **Callable Functions**（`httpsCallable`、Firebase Functions）。Firebase SDK が ID トークンを自動付与し、`context.auth` で uid を取得できる。CORS/認証の実装が簡潔。**Blaze プラン必須**。
+- **採用（Phase2）**: **Cloudflare Workers + `fetch`**。クライアントが Firebase ID トークンを取得し `Authorization: Bearer` で送信、Worker 側でサードパーティ JWT ライブラリ（`jose`）により検証する（`worker/src/auth.ts`）。Firebase は Spark プランのまま（Firestore/Authentication のみ）。
+- 本書の各エンドポイント記述は Callable 前提の記法（`data`/`result`、Firebase エラーコード）を用いるが、Phase2 実装では HTTP（POST + JSON body、レスポンスは同型、エラーは `{ error: { code, message } }` + 対応する HTTP ステータス）に読み替える。
 
 ### 1.2 認証
 | 対象 | 認証 |
 |---|---|
-| 生成系・書込系・削除 | Firebase Auth。`context.auth.uid` 必須（当面は**匿名認証**で uid を確立。将来 Apple/Google をリンク昇格）。未認証は `unauthenticated` |
-| QR ペアリング照合（Web 初回） | 未サインインでも可。短命トークンを検証しカスタムトークンを返す（第5章） |
+| 生成系・書込系・削除 | Firebase Auth の ID トークン必須（当面は**匿名認証**で uid を確立。将来 Apple/Google をリンク昇格）。未認証は `unauthenticated`。Phase2 実装では Worker が ID トークンを検証し uid を得る（`context.auth.uid` 相当） |
+| QR ペアリング照合（Web 初回） | 未サインインでも可。短命トークンを検証しカスタムトークンを返す（第5章）。**未実装**（別タスク） |
 
 - リソースは常に呼び出し元 uid にスコープ（他者データへのアクセス不可）。
 
-### 1.3 Claude モデル選定（U-12・決定）
-| 用途 | モデル（確定） | 理由 |
+### 1.3 モデル選定（U-12・2026-07-09 改定）
+| 用途 | モデル（既定） | 理由 |
 |---|---|---|
-| 連想語提案 / AI対話 / 調整 | **Claude Haiku 4.5**（`claude-haiku-4-5-20251001`） | 低遅延・低コスト。対話/インタラクションの体感を軽く保つ |
-| 日記文生成 / 週次・月次まとめ | **Claude Sonnet 5**（`claude-sonnet-5`） | 文章の質・寄り添いの表現力を優先 |
+| 連想語提案 / AI対話 / 調整 | **`gemini-3.1-flash-lite`** | 低遅延・低コスト（無料枠）。対話/インタラクションの体感を軽く保つ |
+| 日記文生成 / 週次・月次まとめ | **`gemini-3.5-flash`** | 無料枠の中で品質・表現力を優先 |
 
-- 不採用の代替案（参考）: まとめ生成のみ上位（Opus 4.8 `claude-opus-4-8`）を用いる案も検討したが、コストと品質のバランスで Sonnet 5 を採用。モデルは環境変数（[environments.md](../.claude/rules/environments.md)）で差し替え可能にする。
+- **変更履歴**: 当初 Claude Haiku 4.5（連想/対話/調整）・Claude Sonnet 5（生成/まとめ）で決定していたが、**課金を発生させず無料枠で運用したい**というユーザー方針により Google Gemini API（Gemini Developer API・無料枠）へ変更した（詳細は [environments.md](../.claude/rules/environments.md)）。将来アプリが軌道に乗る／AI 能力に不満が出た場合は Anthropic 等の有料 API へ戻す可能性がある。モデルは環境変数（`GEMINI_MODEL_INTERACTIVE`/`GEMINI_MODEL_GENERATE`）で差し替え可能。
 
 ### 1.4 共通エラー形式
-Callable は Firebase の標準エラーコードを用いる。
+Firebase の標準エラーコード相当のコード体系を用いる（Callable では `HttpsError`、Phase2 の Worker 実装では `{ error: { code, message } }` + HTTP ステータスとして表現）。
 
 | code | 意味 | 例 |
 |---|---|---|
 | `unauthenticated` | 未認証 | ID トークン無し |
 | `invalid-argument` | 入力不正 | 必須欠落・型不一致 |
-| `resource-exhausted` | レート/クォータ超過 | Claude レート、関数同時実行 |
-| `unavailable` | 一時障害 | Claude 一時エラー、ネットワーク |
+| `resource-exhausted` | レート/クォータ超過 | AI API レート、関数同時実行 |
+| `unavailable` | 一時障害 | AI API 一時エラー、ネットワーク |
 | `deadline-exceeded` | タイムアウト | 生成が上限超過 |
 | `permission-denied` | 権限外 | 他者リソース |
 | `internal` | 内部エラー | 想定外 |
@@ -50,13 +53,15 @@ Callable は Firebase の標準エラーコードを用いる。
 
 ---
 
-## 2. Claude 連携の内部仕様（Functions → Claude）
+## 2. AI 連携の内部仕様（Worker → Gemini）
 
-- **エンドポイント**: Anthropic Messages API（`POST https://api.anthropic.com/v1/messages`）。ヘッダ `x-api-key`（Secrets）、`anthropic-version`。
-- **共通パラメータ**: `model`（第1.3節）、`max_tokens`（用途別上限）、`system`（役割・トーン・安全方針）、`messages`。
+> 本節は Phase2 実装（Gemini）に合わせて記述する。当初 Anthropic Messages API を前提に設計していたが、無料運用のため Gemini Developer API に変更した（第1.3節）。
+
+- **エンドポイント**: Gemini Developer API（`POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`）。ヘッダ `x-goog-api-key`（Secrets）。
+- **共通パラメータ**: `model`（第1.3節）、`generationConfig.maxOutputTokens`（用途別上限）、`systemInstruction`（役割・トーン・安全方針）、`contents`（対話履歴＋当該メッセージ）。構造化出力時は `generationConfig.responseMimeType: "application/json"` ＋ `responseSchema` を付与（`worker/src/llm.ts`）。
 - **system プロンプト方針（要点）**: 「たそがれ時に心を整える、静かで温かい伴走者。共感的に、短く、断定や診断をしない。日本語」。プロンプトのバージョンを `promptVersion` として `entries.source`／`insights.source` に記録（本文送信内容自体はログ化しない）。
-- **ロール対応**: 保存モデルの `ai`/`me`（[data.md](data.md)）↔ Claude の `assistant`/`user` に写像する（用語統一）。
-- **タイムアウト**: 関数側でストリーミング or 上限 `max_tokens` を設定し、`deadline-exceeded` を制御。
+- **ロール対応**: 保存モデルの `ai`/`me`（[data.md](data.md)）↔ Gemini の `model`/`user` に写像する（`worker/src/index.ts` の `toGeminiHistory`）。
+- **タイムアウト**: Worker 側で `fetch` にタイムアウトを設定し、`deadline-exceeded` を制御（`worker/src/llm.ts`）。
 
 > 送信は最小限（当該ステップの選択語・当日文脈・必要な過去要約のみ）。過去全件や個人特定情報は送らない（第8章）。
 
@@ -68,7 +73,7 @@ Callable は Firebase の標準エラーコードを用いる。
 
 ### 3.1 `suggestWords` — 連想語提案（ことば／step3）
 - **用途**: きもち・できごと＋傾向から連想語候補を返す（[screen.md](screen.md) 3.4）。
-- **モデル**: Haiku 4.5。
+- **モデル**: interactive（既定 `gemini-3.1-flash-lite`、第1.3節）。
 - Request:
 ```json
 {
@@ -94,7 +99,7 @@ Callable は Firebase の標準エラーコードを用いる。
 
 ### 3.2 `generateDiary` — 日記文生成（たしかめる／step4）
 - **用途**: 選択語群から日記本文と推定感情ラベルを生成（[screen.md](screen.md) 3.5、[data.md](data.md) 3.2）。
-- **モデル**: Sonnet 5。
+- **モデル**: generate（既定 `gemini-3.5-flash`、第1.3節）。
 - Request:
 ```json
 {
@@ -120,7 +125,7 @@ Callable は Firebase の標準エラーコードを用いる。
 
 ### 3.3 `adjustDiary` — 調整・再生成
 - **用途**: 「もっと前向きに/短くして/詳しく」で本文を再生成（[screen.md](screen.md) 3.5）。
-- **モデル**: Haiku 4.5。
+- **モデル**: interactive（既定 `gemini-3.1-flash-lite`、第1.3節）。
 - Request:
 ```json
 { "bodyText": "…現在の本文…", "instruction": "positive", "locale": "ja" }
@@ -133,7 +138,7 @@ Callable は Firebase の標準エラーコードを用いる。
 
 ### 3.4 `chat` — AI対話（詳細画面）
 - **用途**: 保存済みエントリを文脈に、寄り添い対話（[screen.md](screen.md) 3.8）。
-- **モデル**: Haiku 4.5。
+- **モデル**: interactive（既定 `gemini-3.1-flash-lite`、第1.3節）。
 - Request:
 ```json
 {
@@ -149,12 +154,12 @@ Callable は Firebase の標準エラーコードを用いる。
 ```json
 { "reply": "それはよかったです。1ヶ月前も同じような日に「疲れた」と書いていましたよ。", "promptVersion": "chat-v1" }
 ```
-- 備考: サーバは必要に応じ当該エントリ本文・関連する過去の**要約**のみを補完（全件送信しない）。`history` は直近数往復に限定する（最小送信、第8章）。会話履歴の保存は U-05（既定=保存、[data.md](data.md) 3.3）。`history` の `ai`/`me` は Claude 側で `assistant`/`user` に写像。`promptVersion` はテレメトリ用の返却であり、`messages`（[data.md](data.md) 3.3）には保存しない（保存する場合は data.md 側にフィールド追補が必要）。
+- 備考: サーバは必要に応じ当該エントリ本文・関連する過去の**要約**のみを補完（全件送信しない）。`history` は直近数往復に限定する（最小送信、第8章）。会話履歴の保存は U-05（既定=保存、[data.md](data.md) 3.3）。`history` の `ai`/`me` は Gemini 側で `model`/`user` に写像（`worker/src/index.ts` の `toGeminiHistory`）。`promptVersion` はテレメトリ用の返却であり、`messages`（[data.md](data.md) 3.3）には保存しない（保存する場合は data.md 側にフィールド追補が必要）。
 - **初回問いかけ（空対話時）**: 履歴が空の対話を開いた際、その日のエントリ（感情・本文）を文脈に AI の最初の問いかけを生成する。`chat` の特殊系（`message` 省略）または専用の opening 呼び出しとして扱う（クライアントのモックは `chatOpening`）。応答形は `chat` と同じ `{ reply, promptVersion }`。
 
 ### 3.5 `generateInsight` — 週次/月次まとめ
-- **用途**: 期間集計＋まとめ文を生成しキャッシュ（[data.md](data.md) 3.5、[screen.md](screen.md) 3.7/4.1）。
-- **モデル**: Sonnet 5。
+- **用途**: 期間集計＋まとめ文を生成しキャッシュ（[data.md](data.md) 3.5、[screen.md](screen.md) 3.7/4.1）。**未実装**（別タスク）。
+- **モデル**: generate（既定 `gemini-3.5-flash`、第1.3節）。
 - **実行主体**: 定期バッチ（日次 or 期間確定時）＋Web 表示時のオンデマンド（案B、[basic-design.md](design/basic-design.md) 4.3）。
 - Request:
 ```json
@@ -223,14 +228,14 @@ Callable は Firebase の標準エラーコードを用いる。
 ## 7. レート制限・リトライ・タイムアウト
 
 - **クライアント再試行**: `unavailable`/`deadline-exceeded`/`resource-exhausted` のみ指数バックオフで数回。入力・下書きは保持。
-- **サーバ**: Claude 呼び出しに上限 `max_tokens` とタイムアウトを設定。Claude 側レート超過は `resource-exhausted` に写像。
+- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウトを設定。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm.ts`）。
 - **多重防止**: 保存・削除・ペアリング消費はサーバ側で状態（`consumed` 等）を検証し二重実行を防ぐ。
 
 ---
 
 ## 8. プライバシー・ログ方針
-- Claude へは当該処理に必要な最小限のみ送信（当ステップの語・当日文脈・必要な過去要約）。全件・個人特定情報は送らない。
-- 日記本文・Claude 送受信ペイロードを**ログに残さない**。ログはメタ情報（関数名・uid ハッシュ・所要時間・エラーコード）に限定。
+- AI へは当該処理に必要な最小限のみ送信（当ステップの語・当日文脈・必要な過去要約）。全件・個人特定情報は送らない。
+- 日記本文・AI 送受信ペイロードを**ログに残さない**。ログはメタ情報（関数名・uid ハッシュ・所要時間・エラーコード）に限定。
 - モデル/プロンプト版は `source.model`/`promptVersion` として保存し追跡可能にする（本文とは別）。
 - すべて uid スコープ、最小権限（[constraints.md](../.claude/rules/constraints.md)）。
 
@@ -248,10 +253,18 @@ Callable は Firebase の標準エラーコードを用いる。
 ---
 
 ## 10. 未確定・申し送り
-- **U-12（決定）**: モデルは**連想/対話/調整=Haiku 4.5、生成/まとめ=Sonnet 5**（環境変数で差し替え可）。コスト上限は運用で監視（実装で確定）。
+
+### 実装状況（Phase2・AI 実接続）
+- **実装済み（Cloudflare Workers / `worker/`）**: `suggestWords`・`generateDiary`・`adjustDiary`・`chat`・`chatOpening`。**Firebase Blaze プラン回避のため Firebase Functions ではなく Cloudflare Workers を採用**（Firebase は Spark プランのまま。[environments.md](../.claude/rules/environments.md)／[worker/README.md](../worker/README.md)）。認証は Firebase ID トークン（`Authorization: Bearer`）を Worker 側が `jose` で検証（Firebase Admin SDK 不使用）。
+- **LLM プロバイダ（2026-07-09 変更）**: 当初 Anthropic（Claude Haiku 4.5 / Sonnet 5）で実装したが、**課金を発生させず無料枠で運用したい**というユーザー方針により **Google Gemini API**（Gemini Developer API・無料枠）へ変更した。API キーは Cloudflare Secret（`GEMINI_API_KEY`）、モデルは環境変数（`GEMINI_MODEL_INTERACTIVE`/`GEMINI_MODEL_GENERATE`）で差し替え。生成系（suggest/generate/adjust）は Gemini の **構造化出力（`responseSchema`/`responseMimeType: application/json`）** で JSON を強制。呼び出し実装は `worker/src/llm.ts` に集約しており、将来 Anthropic 等の有料 API へ戻す場合もこのファイルの差し替えのみで対応できる設計。クライアントは `isClaudeWorkerConfigured`（`EXPO_PUBLIC_CLAUDE_WORKER_URL` の有無）で **モック↔Worker を自動切替**（`src/services/diaryApi.ts`）。
+- **未実装（別タスク）**: `generateInsight`（3.5）・`createPairingToken`/`verifyPairingToken`（第5章）・`deleteAccount`（第6章）。これらは書込・集計・アカウント削除を伴うため、Cloudflare Workers か他手段（Firestore セキュリティルールでの直接制御等）かは着手時に改めて検討する。
+- **未対応（将来）**: `chat` のサーバ側文脈補完（当該エントリ本文・過去要約）は現状クライアントの直近履歴のみを送信。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
+
+### 未確定
+- **U-12（改定）**: モデルは当初 Claude（連想/対話/調整=Haiku 4.5、生成/まとめ=Sonnet 5）を決定していたが、無料運用のため **Gemini（連想/対話/調整=`gemini-3.1-flash-lite`、生成/まとめ=`gemini-3.5-flash`）に変更**（環境変数で差し替え可）。コスト上限（将来 Anthropic 等へ戻す場合）は運用で監視。
 - **U-05（決定）**: 対話履歴は**保存する**（`chat` の応答を `messages` に保存、[data.md](data.md) 3.3）。
-- **U-06（決定）**: 連想は `suggestWords`（**都度 Claude＋傾向**）に集約。候補チップ初期は固定辞書＋傾向差し替え。
+- **U-06（決定）**: 連想は `suggestWords`（**都度 AI＋傾向**）に集約。候補チップ初期は固定辞書＋傾向差し替え。
 - **プロンプト設計の詳細**（system/few-shot、`promptVersion` 運用）は Notion 要件（プロンプト設計方針）と本書を突き合わせて確定（残）。
 - **感情推定の閾値・自由語→enum 写像**の具体規則（[data.md](data.md) 第4章と連動）。
 - **ストリーミング**採否（対話/生成の体感改善）。
-- **モデルの環境変数化（反映済）**: [environments.md](../.claude/rules/environments.md) に用途別モデルと環境変数（`CLAUDE_MODEL_INTERACTIVE`/`CLAUDE_MODEL_GENERATE`）の設定項目を追記済み。
+- **モデルの環境変数化（反映済）**: [environments.md](../.claude/rules/environments.md) に用途別モデルと環境変数（`GEMINI_MODEL_INTERACTIVE`/`GEMINI_MODEL_GENERATE`）の設定項目を追記済み。

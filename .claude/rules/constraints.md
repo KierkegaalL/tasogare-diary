@@ -15,7 +15,7 @@
 
 ## プライバシー・データ保持方針
 
-- 日記は極めてセンシティブな個人情報。**Claude API キーはクライアントに埋め込まず、必ず Firebase Functions 経由で呼び出す**（[environments.md](environments.md)）。
+- 日記は極めてセンシティブな個人情報。**Claude API キーはクライアントに埋め込まず、必ずサーバ側プロキシ経由で呼び出す**（実装は Cloudflare Workers。Firebase Blaze プラン回避のため Firebase Functions は不採用。[environments.md](environments.md)）。
 - ユーザーデータは本人のみアクセス可能とする（Firestore セキュリティルールで uid スコープを強制）。
 - 日記本文を分析・学習等の二次利用に回さない。Claude API へは応答生成に必要な最小限のみ送信する。
 - データ保持: ユーザーは自分の日記・アカウントを削除でき、削除時は関連データ（日記・ペアリング情報）も確実に削除する。
