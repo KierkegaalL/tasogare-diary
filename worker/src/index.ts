@@ -1,6 +1,7 @@
 import { verifyFirebaseIdToken, AuthError } from './auth';
-import { ApiError, callJson, callText, modelGenerate, modelInteractive } from './llm';
-import type { Env, GeminiHistoryEntry } from './llm';
+import { ApiError, getLlmProvider } from './llm';
+import type { LlmHistoryEntry, LlmProvider } from './llm';
+import type { Env } from './env';
 import {
   PROMPT_VERSION,
   SYSTEM_ADJUST_DIARY,
@@ -10,13 +11,14 @@ import {
   SYSTEM_SUGGEST_WORDS,
 } from './prompts';
 
-// たそがれ日記 Claude 連携プロキシ（Cloudflare Workers 版）。
+// たそがれ日記 AI連携プロキシ（Cloudflare Workers 版）。
 // Firebase Blaze プランを使わず、Spark プラン（Firestore/Auth のみ）を維持するための構成。
 // - クライアントは Firebase ID トークンを Authorization: Bearer で送る。
-// - 本 Worker がトークンを検証（jose + Google 公開鍵）→ LLM（現在は Gemini）を呼び出す。
+// - 本 Worker がトークンを検証（jose + Google 公開鍵）→ LLM プロバイダを呼び出す。
 // - API キーはクライアントに埋め込まず、Worker の Secret にのみ保持（constraints.md）。
-// 注: LLM プロバイダは無料枠運用のため Gemini を採用（./llm.ts）。将来 Anthropic 等へ戻す場合は
-//     llm.ts の実装のみ差し替えれば、本ファイルのルーティング/エラー処理は変更不要。
+// 注: LLM プロバイダは抽象化されており（./llm）、現在の実装は無料枠運用のため Gemini。
+//     別 API（Anthropic 等）へ移管する場合は ./llm 配下にプロバイダ実装を追加するだけで、
+//     本ファイル（ルーティング/バリデーション/プロンプト）は変更不要。
 
 // ---- 型（api-contract.md 第3章。クライアント src/services/diaryApi.ts と対応）----
 type MoodLevel = 'calm' | 'tender' | 'heavy';
@@ -61,12 +63,19 @@ function requireString(value: unknown, field: string): string {
   return value;
 }
 
-// ai/me（保存モデル）→ Gemini の model/user へ写像（api-contract.md 第2章）。
-function toGeminiHistory(history: { role: ChatRole; text: string }[]): GeminiHistoryEntry[] {
+// `as const` のリテラル型スキーマを LlmCallOptions.jsonSchema（Record<string, unknown>）へ渡すための
+// 型ヘルパー（二重キャストの重複を1箇所に集約）。スキーマ規約は llm/types.ts を参照。
+function schema(s: unknown): Record<string, unknown> {
+  return s as Record<string, unknown>;
+}
+
+// ai/me（保存モデル）→ プロバイダ非依存ロール assistant/user へ写像（api-contract.md 第2章）。
+// 各プロバイダが自社のロール名（例: Gemini は model/user）へ再写像する。
+function toLlmHistory(history: { role: ChatRole; text: string }[]): LlmHistoryEntry[] {
   return history
     .filter((m) => typeof m?.text === 'string' && m.text.length > 0)
     .map((m) => ({
-      role: m.role === 'ai' ? ('model' as const) : ('user' as const),
+      role: m.role === 'ai' ? ('assistant' as const) : ('user' as const),
       text: m.text,
     }));
 }
@@ -92,7 +101,7 @@ const SUGGEST_WORDS_SCHEMA = {
   required: ['suggestions'],
 } as const;
 
-async function handleSuggestWords(env: Env, data: Record<string, unknown>) {
+async function handleSuggestWords(llm: LlmProvider, data: Record<string, unknown>) {
   const events = asStringArray(data.events ?? [], 'events');
   const selected = asStringArray(data.selected ?? [], 'selected');
   const mood = typeof data.mood === 'string' ? data.mood : undefined;
@@ -105,12 +114,12 @@ async function handleSuggestWords(env: Env, data: Record<string, unknown>) {
     instruction: '上記をふまえ、日記のきっかけになる連想語を最大7語、重複なく提案してください。',
   });
 
-  const parsed = await callJson<{ suggestions: { text: string; category: WordCategory }[] }>(env, {
-    model: modelInteractive(env),
+  const parsed = await llm.callJson<{ suggestions: { text: string; category: WordCategory }[] }>({
+    purpose: 'interactive',
     system: SYSTEM_SUGGEST_WORDS,
     userText,
     maxTokens: 512,
-    jsonSchema: SUGGEST_WORDS_SCHEMA as unknown as Record<string, unknown>,
+    jsonSchema: schema(SUGGEST_WORDS_SCHEMA),
   });
 
   return { suggestions: parsed.suggestions ?? [], promptVersion: PROMPT_VERSION.suggestWords };
@@ -123,14 +132,14 @@ const GENERATE_DIARY_SCHEMA = {
   type: 'object',
   properties: {
     bodyText: { type: 'string' },
-    // Gemini の responseSchema は type を配列（["string","null"]）にできないため、
-    // 単一 type + nullable: true で表現する（api-contract.md 第2章）。
+    // nullable は OpenAPI 3.0 風の `nullable: true` で表現する（llm/types.ts のスキーマ規約）。
+    // 各プロバイダが自社の構造化出力形式へ変換する（Gemini はそのまま responseSchema に渡せる）。
     mood: { type: 'string', enum: ['calm', 'tender', 'heavy'], nullable: true },
   },
   required: ['bodyText', 'mood'],
 } as const;
 
-async function handleGenerateDiary(env: Env, data: Record<string, unknown>) {
+async function handleGenerateDiary(llm: LlmProvider, data: Record<string, unknown>) {
   const words = data.words;
   if (!Array.isArray(words) || words.length === 0) {
     throw new ApiError(400, 'invalid-argument', 'words は必須です。');
@@ -143,12 +152,12 @@ async function handleGenerateDiary(env: Env, data: Record<string, unknown>) {
     instruction: '上記の言葉から日記本文（2〜3文）と感情ラベルを生成してください。',
   });
 
-  const parsed = await callJson<{ bodyText: string; mood: MoodLevel | null }>(env, {
-    model: modelGenerate(env),
+  const parsed = await llm.callJson<{ bodyText: string; mood: MoodLevel | null }>({
+    purpose: 'generate',
     system: SYSTEM_GENERATE_DIARY,
     userText,
     maxTokens: 1024,
-    jsonSchema: GENERATE_DIARY_SCHEMA as unknown as Record<string, unknown>,
+    jsonSchema: schema(GENERATE_DIARY_SCHEMA),
   });
 
   return {
@@ -169,7 +178,7 @@ const ADJUST_DIARY_SCHEMA = {
   required: ['bodyText'],
 } as const;
 
-async function handleAdjustDiary(env: Env, data: Record<string, unknown>) {
+async function handleAdjustDiary(llm: LlmProvider, data: Record<string, unknown>) {
   const bodyText = requireString(data.bodyText, 'bodyText');
   const instruction = data.instruction as AdjustInstruction;
   if (!['positive', 'shorter', 'detailed'].includes(instruction)) {
@@ -184,12 +193,12 @@ async function handleAdjustDiary(env: Env, data: Record<string, unknown>) {
     request: `次の日記本文を「${label}」書き直してください。`,
   });
 
-  const parsed = await callJson<{ bodyText: string }>(env, {
-    model: modelInteractive(env),
+  const parsed = await llm.callJson<{ bodyText: string }>({
+    purpose: 'interactive',
     system: SYSTEM_ADJUST_DIARY,
     userText,
     maxTokens: 1024,
-    jsonSchema: ADJUST_DIARY_SCHEMA as unknown as Record<string, unknown>,
+    jsonSchema: schema(ADJUST_DIARY_SCHEMA),
   });
 
   // mood は調整では再推定しない（クライアントが既存の mood を維持する）。
@@ -199,15 +208,15 @@ async function handleAdjustDiary(env: Env, data: Record<string, unknown>) {
 // ==========================================================================
 // 3.4 chat — AI対話
 // ==========================================================================
-async function handleChat(env: Env, data: Record<string, unknown>) {
+async function handleChat(llm: LlmProvider, data: Record<string, unknown>) {
   const message = requireString(data.message, 'message');
   const rawHistory = Array.isArray(data.history) ? data.history : [];
-  const history = toGeminiHistory(rawHistory as { role: ChatRole; text: string }[]);
+  const history = toLlmHistory(rawHistory as { role: ChatRole; text: string }[]);
 
   // 注: 当該エントリ本文・過去要約のサーバ補完（api-contract.md 3.4 備考）は将来対応。
   // 現段階はクライアントから渡る直近履歴＋メッセージのみを最小送信する（第8章）。
-  const reply = await callText(env, {
-    model: modelInteractive(env),
+  const reply = await llm.callText({
+    purpose: 'interactive',
     system: SYSTEM_CHAT,
     history,
     userText: message,
@@ -220,7 +229,7 @@ async function handleChat(env: Env, data: Record<string, unknown>) {
 // ==========================================================================
 // 3.4 chatOpening — 初回問いかけ
 // ==========================================================================
-async function handleChatOpening(env: Env, data: Record<string, unknown>) {
+async function handleChatOpening(llm: LlmProvider, data: Record<string, unknown>) {
   const mood = typeof data.mood === 'string' ? data.mood : null;
   const bodyText = typeof data.bodyText === 'string' ? data.bodyText : '';
 
@@ -230,8 +239,8 @@ async function handleChatOpening(env: Env, data: Record<string, unknown>) {
     instruction: 'この日のエントリをふまえ、対話の最初の問いかけを1〜2文で生成してください。',
   });
 
-  const reply = await callText(env, {
-    model: modelInteractive(env),
+  const reply = await llm.callText({
+    purpose: 'interactive',
     system: SYSTEM_CHAT_OPENING,
     userText,
     maxTokens: 256,
@@ -240,7 +249,7 @@ async function handleChatOpening(env: Env, data: Record<string, unknown>) {
   return { reply, promptVersion: PROMPT_VERSION.chatOpening };
 }
 
-const ROUTES: Record<string, (env: Env, data: Record<string, unknown>) => Promise<unknown>> = {
+const ROUTES: Record<string, (llm: LlmProvider, data: Record<string, unknown>) => Promise<unknown>> = {
   '/suggestWords': handleSuggestWords,
   '/generateDiary': handleGenerateDiary,
   '/adjustDiary': handleAdjustDiary,
@@ -274,7 +283,8 @@ export default {
         throw new ApiError(400, 'invalid-argument', 'リクエスト本文が不正な JSON です。');
       }
 
-      const result = await handler(env, data);
+      const llm = getLlmProvider(env);
+      const result = await handler(llm, data);
       return json(result);
     } catch (err) {
       return errorResponse(err);
