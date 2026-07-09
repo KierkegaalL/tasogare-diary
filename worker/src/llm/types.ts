@@ -2,17 +2,21 @@
 // プロバイダ（現在は Gemini）を将来別 API（Anthropic 等）へ差し替える際に、呼び出し側（index.ts）を
 // 変更せずに済ませるための抽象。各プロバイダ実装は LlmProvider を満たすように書く。
 
-// api-contract.md 1.4 のエラーコードに準拠した HTTP エラー（プロバイダ共通）。
+// api-contract.md 1.4 のエラーコードに準拠した HTTP エラー（Worker 共通。LLM 以外の機能でも使う）。
+export type ApiErrorCode =
+  | 'invalid-argument'
+  | 'unauthenticated'
+  | 'resource-exhausted'
+  | 'unavailable'
+  | 'deadline-exceeded'
+  | 'permission-denied'
+  | 'failed-precondition'
+  | 'internal';
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
-    public readonly code:
-      | 'invalid-argument'
-      | 'unauthenticated'
-      | 'resource-exhausted'
-      | 'unavailable'
-      | 'deadline-exceeded'
-      | 'internal',
+    public readonly code: ApiErrorCode,
     message: string,
   ) {
     super(message);
