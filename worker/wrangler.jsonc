@@ -7,6 +7,8 @@
   // 公開可能な値のみ。GEMINI_API_KEY はここに書かず `wrangler secret put GEMINI_API_KEY` で登録する。
   "vars": {
     "FIREBASE_PROJECT_ID": "tasogare-diary-project"
+    // LLM プロバイダ切替（既定: gemini）。別プロバイダ追加時に指定する（src/llm/index.ts）。
+    // "LLM_PROVIDER": "gemini",
     // "GEMINI_MODEL_INTERACTIVE": "gemini-3.1-flash-lite",
     // "GEMINI_MODEL_GENERATE": "gemini-3.5-flash"
   }

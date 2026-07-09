@@ -58,10 +58,10 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 > 本節は Phase2 実装（Gemini）に合わせて記述する。当初 Anthropic Messages API を前提に設計していたが、無料運用のため Gemini Developer API に変更した（第1.3節）。
 
 - **エンドポイント**: Gemini Developer API（`POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`）。ヘッダ `x-goog-api-key`（Secrets）。
-- **共通パラメータ**: `model`（第1.3節）、`generationConfig.maxOutputTokens`（用途別上限）、`systemInstruction`（役割・トーン・安全方針）、`contents`（対話履歴＋当該メッセージ）。構造化出力時は `generationConfig.responseMimeType: "application/json"` ＋ `responseSchema` を付与（`worker/src/llm.ts`）。
+- **共通パラメータ**: `model`（第1.3節）、`generationConfig.maxOutputTokens`（用途別上限）、`systemInstruction`（役割・トーン・安全方針）、`contents`（対話履歴＋当該メッセージ）。構造化出力時は `generationConfig.responseMimeType: "application/json"` ＋ `responseSchema` を付与（`worker/src/llm/gemini.ts`）。
 - **system プロンプト方針（要点）**: 「たそがれ時に心を整える、静かで温かい伴走者。共感的に、短く、断定や診断をしない。日本語」。プロンプトのバージョンを `promptVersion` として `entries.source`／`insights.source` に記録（本文送信内容自体はログ化しない）。
-- **ロール対応**: 保存モデルの `ai`/`me`（[data.md](data.md)）↔ Gemini の `model`/`user` に写像する（`worker/src/index.ts` の `toGeminiHistory`）。
-- **タイムアウト**: Worker 側で `fetch` にタイムアウトを設定し、`deadline-exceeded` を制御（`worker/src/llm.ts`）。
+- **ロール対応**: 保存モデルの `ai`/`me`（[data.md](data.md)）を二段階で写像する。まず `worker/src/index.ts` の `toLlmHistory` でプロバイダ非依存ロール `assistant`/`user` に写像し、次に各プロバイダ（`worker/src/llm/gemini.ts` の `toGeminiRole`）が自社のロール（Gemini は `model`/`user`）へ再写像する。
+- **タイムアウト**: Worker 側で `fetch` にタイムアウトを設定し、`deadline-exceeded` を制御（`worker/src/llm/gemini.ts`）。
 
 > 送信は最小限（当該ステップの選択語・当日文脈・必要な過去要約のみ）。過去全件や個人特定情報は送らない（第8章）。
 
@@ -154,7 +154,7 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 ```json
 { "reply": "それはよかったです。1ヶ月前も同じような日に「疲れた」と書いていましたよ。", "promptVersion": "chat-v1" }
 ```
-- 備考: サーバは必要に応じ当該エントリ本文・関連する過去の**要約**のみを補完（全件送信しない）。`history` は直近数往復に限定する（最小送信、第8章）。会話履歴の保存は U-05（既定=保存、[data.md](data.md) 3.3）。`history` の `ai`/`me` は Gemini 側で `model`/`user` に写像（`worker/src/index.ts` の `toGeminiHistory`）。`promptVersion` はテレメトリ用の返却であり、`messages`（[data.md](data.md) 3.3）には保存しない（保存する場合は data.md 側にフィールド追補が必要）。
+- 備考: サーバは必要に応じ当該エントリ本文・関連する過去の**要約**のみを補完（全件送信しない）。`history` は直近数往復に限定する（最小送信、第8章）。会話履歴の保存は U-05（既定=保存、[data.md](data.md) 3.3）。`history` の `ai`/`me` は `toLlmHistory`（`worker/src/index.ts`）で `assistant`/`user` に写像後、プロバイダ側（Gemini は `toGeminiRole`）が `model`/`user` に再写像する（第2章「ロール対応」）。`promptVersion` はテレメトリ用の返却であり、`messages`（[data.md](data.md) 3.3）には保存しない（保存する場合は data.md 側にフィールド追補が必要）。
 - **初回問いかけ（空対話時）**: 履歴が空の対話を開いた際、その日のエントリ（感情・本文）を文脈に AI の最初の問いかけを生成する。`chat` の特殊系（`message` 省略）または専用の opening 呼び出しとして扱う（クライアントのモックは `chatOpening`）。応答形は `chat` と同じ `{ reply, promptVersion }`。
 
 ### 3.5 `generateInsight` — 週次/月次まとめ
@@ -228,7 +228,7 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 ## 7. レート制限・リトライ・タイムアウト
 
 - **クライアント再試行**: `unavailable`/`deadline-exceeded`/`resource-exhausted` のみ指数バックオフで数回。入力・下書きは保持。
-- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウトを設定。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm.ts`）。
+- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウトを設定。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm/gemini.ts`）。
 - **多重防止**: 保存・削除・ペアリング消費はサーバ側で状態（`consumed` 等）を検証し二重実行を防ぐ。
 
 ---
@@ -256,7 +256,8 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 
 ### 実装状況（Phase2・AI 実接続）
 - **実装済み（Cloudflare Workers / `worker/`）**: `suggestWords`・`generateDiary`・`adjustDiary`・`chat`・`chatOpening`。**Firebase Blaze プラン回避のため Firebase Functions ではなく Cloudflare Workers を採用**（Firebase は Spark プランのまま。[environments.md](../.claude/rules/environments.md)／[worker/README.md](../worker/README.md)）。認証は Firebase ID トークン（`Authorization: Bearer`）を Worker 側が `jose` で検証（Firebase Admin SDK 不使用）。
-- **LLM プロバイダ（2026-07-09 変更）**: 当初 Anthropic（Claude Haiku 4.5 / Sonnet 5）で実装したが、**課金を発生させず無料枠で運用したい**というユーザー方針により **Google Gemini API**（Gemini Developer API・無料枠）へ変更した。API キーは Cloudflare Secret（`GEMINI_API_KEY`）、モデルは環境変数（`GEMINI_MODEL_INTERACTIVE`/`GEMINI_MODEL_GENERATE`）で差し替え。生成系（suggest/generate/adjust）は Gemini の **構造化出力（`responseSchema`/`responseMimeType: application/json`）** で JSON を強制。呼び出し実装は `worker/src/llm.ts` に集約しており、将来 Anthropic 等の有料 API へ戻す場合もこのファイルの差し替えのみで対応できる設計。クライアントは `isClaudeWorkerConfigured`（`EXPO_PUBLIC_CLAUDE_WORKER_URL` の有無）で **モック↔Worker を自動切替**（`src/services/diaryApi.ts`）。
+- **LLM プロバイダ（2026-07-09 変更）**: 当初 Anthropic（Claude Haiku 4.5 / Sonnet 5）で実装したが、**課金を発生させず無料枠で運用したい**というユーザー方針により **Google Gemini API**（Gemini Developer API・無料枠）へ変更した。API キーは Cloudflare Secret（`GEMINI_API_KEY`）、モデルは環境変数（`GEMINI_MODEL_INTERACTIVE`/`GEMINI_MODEL_GENERATE`）で差し替え。生成系（suggest/generate/adjust）は Gemini の **構造化出力（`responseSchema`/`responseMimeType: application/json`）** で JSON を強制。クライアントは `isClaudeWorkerConfigured`（`EXPO_PUBLIC_CLAUDE_WORKER_URL` の有無）で **モック↔Worker を自動切替**（`src/services/diaryApi.ts`）。
+- **LLM プロバイダ抽象（移管容易化）**: Worker 側の LLM 呼び出しは `worker/src/llm/`（`types.ts`=`LlmProvider` インターフェース／`gemini.ts`=Gemini 実装／`index.ts`=`LLM_PROVIDER` によるセレクタ）に抽象化済み。`worker/src/index.ts` は用途（`purpose: 'interactive'|'generate'`）を指定するのみでモデル ID・プロバイダ固有仕様に依存しない。**将来 Anthropic 等へ移管する場合はプロバイダ実装を1ファイル追加＋セレクタに分岐追加のみ**（詳細は [worker/README.md](../worker/README.md) の「LLM プロバイダ抽象」）。worker のユニットテスト（vitest）は `worker/src/**/__tests__/`。
 - **未実装（別タスク）**: `generateInsight`（3.5）・`createPairingToken`/`verifyPairingToken`（第5章）・`deleteAccount`（第6章）。これらは書込・集計・アカウント削除を伴うため、Cloudflare Workers か他手段（Firestore セキュリティルールでの直接制御等）かは着手時に改めて検討する。
 - **未対応（将来）**: `chat` のサーバ側文脈補完（当該エントリ本文・過去要約）は現状クライアントの直近履歴のみを送信。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
 

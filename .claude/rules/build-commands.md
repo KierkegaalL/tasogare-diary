@@ -30,6 +30,17 @@
 | 関連テストのみ | `npx jest --findRelatedTests <file>` |
 | ウォッチ | `npx jest --watch` |
 
+## worker（Cloudflare Workers・別プロジェクト）
+
+`worker/` は独立した npm プロジェクト（別 `package.json`／`tsconfig.json`）。ルートの lint/型/テスト対象外（`eslint.config.js`・`tsconfig.json` で除外）なので、変更時は個別にコマンドを実行する。
+
+| 目的 | コマンド |
+|---|---|
+| 型チェック | `npm --prefix worker run typecheck` （= `tsc --noEmit`） |
+| ユニットテスト | `npm --prefix worker test` （= `vitest run`） |
+| ローカル実行 | `npm --prefix worker run dev` （= `wrangler dev`） |
+| デプロイ | `npm --prefix worker run deploy` （= `wrangler deploy`） |
+
 ## hooks による自動実行
 
 `.claude/settings.json` の PostToolUse hook が、ファイル編集後に `.claude/hooks/post-edit-check.sh` を実行する。内容:

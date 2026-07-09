@@ -24,7 +24,7 @@
 
 用途別にモデルを使い分け、環境変数（Secrets/vars）で差し替え可能にする（[api-contract.md](../../docs/api-contract.md) 第1.3節）。
 
-> **プロバイダ変更の経緯**: 当初 Anthropic（Claude Haiku 4.5 / Sonnet 5）を採用していたが、**課金を発生させず無料枠で運用したい**というユーザー方針により、**Google Gemini API（Gemini Developer API・無料枠）**に変更した。将来アプリが軌道に乗る／AI 能力に不満が出た場合は Anthropic 等の有料 API へ戻す可能性がある（`worker/src/llm.ts` の実装差し替えのみで対応できる設計）。
+> **プロバイダ変更の経緯**: 当初 Anthropic（Claude Haiku 4.5 / Sonnet 5）を採用していたが、**課金を発生させず無料枠で運用したい**というユーザー方針により、**Google Gemini API（Gemini Developer API・無料枠）**に変更した。将来アプリが軌道に乗る／AI 能力に不満が出た場合は Anthropic 等の有料 API へ戻す可能性がある（`worker/src/llm/` にプロバイダ抽象化済み。実装1ファイル追加＋セレクタ分岐追加で移管できる設計）。
 
 | 用途 | モデル（既定） |
 |---|---|

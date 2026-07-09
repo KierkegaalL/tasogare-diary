@@ -4,7 +4,24 @@ AI（現在は **Google Gemini API**）へのアクセスを **Cloudflare Worker
 
 **Firebase Blaze プランを使わず Spark プラン（無料枠）を維持する**ための構成。Firebase Functions（Cloud Functions）は世代を問わず Blaze プラン必須のため、AI 連携のプロキシ部分のみ Cloudflare Workers（クレジットカード登録不要の無料枠あり）に置く。Firestore / Authentication は引き続き Firebase（Spark）を使う。
 
-> **LLM プロバイダについて**: 当初 Anthropic（Claude）を想定していたが、**無料での運用を優先**し Google Gemini API（Gemini Developer API・無料枠）に変更した（ユーザー判断）。ルーティング・認証・エラー設計（[src/index.ts](src/index.ts)）はプロバイダ非依存で、呼び出し実装（[src/llm.ts](src/llm.ts)）のみを差し替えれば将来 Anthropic 等へ戻すことも可能。
+> **LLM プロバイダについて**: 当初 Anthropic（Claude）を想定していたが、**無料での運用を優先**し Google Gemini API（Gemini Developer API・無料枠）に変更した（ユーザー判断）。ルーティング・認証・エラー設計（[src/index.ts](src/index.ts)）はプロバイダ非依存で、呼び出し実装（[src/llm/](src/llm/)）のみを差し替えれば将来 Anthropic 等へ戻すことも可能（下記「LLM プロバイダ抽象」参照）。
+
+## LLM プロバイダ抽象（別 API への移管を容易にする設計）
+
+LLM 呼び出しは `src/llm/` にプロバイダ非依存の抽象として実装している。**別 API（Anthropic 等）へ移管する際に `src/index.ts`（ルーティング/バリデーション/プロンプト）を変更せずに済む**ことを目的とする。
+
+| ファイル | 役割 |
+|---|---|
+| [src/llm/types.ts](src/llm/types.ts) | プロバイダ非依存の型・インターフェース（`LlmProvider`）・共通エラー（`ApiError`）。`callText`/`callJson`、用途（`purpose: 'interactive' \| 'generate'`）、履歴ロール（`user`/`assistant`）、構造化出力スキーマ（OpenAPI 3.0 風サブセット）を定義 |
+| [src/llm/gemini.ts](src/llm/gemini.ts) | Gemini 実装（`createGeminiProvider`）。モデル解決・ロール写像（`assistant`→`model`）・fetch・タイムアウト・エラー写像・構造化出力を内包 |
+| [src/llm/index.ts](src/llm/index.ts) | セレクタ（`getLlmProvider`）。`LLM_PROVIDER` 環境変数（既定 `gemini`）で切替 |
+
+**別プロバイダの追加手順**:
+1. `src/llm/<provider>.ts` に `LlmProvider` を満たす `create<Provider>Provider(env)` を実装（各社 API のリクエスト形・ロール名・構造化出力・エラー写像を吸収する）
+2. `src/llm/index.ts` の `getLlmProvider` の `switch` に分岐を追加
+3. `wrangler secret put <PROVIDER>_API_KEY` でキーを登録し、`LLM_PROVIDER` を切替
+
+`index.ts` は `purpose`（interactive/generate）でモデル階層を指定するのみで、具体的なモデル ID・プロバイダ固有仕様には依存しない。
 
 ## 実装済みエンドポイント（要 Firebase ID トークン）
 
@@ -42,7 +59,7 @@ npx wrangler login
 
 # 4) Gemini API キーを Secret に登録（対話プロンプトで直接貼り付ける。ファイル/パイプ経由は
 #    改行混入の原因になるため避ける）
-# 重要: Secret 名は必ず GEMINI_API_KEY にすること（src/llm.ts が参照する名前と一致させる）。
+# 重要: Secret 名は必ず GEMINI_API_KEY にすること（src/llm/gemini.ts が参照する名前と一致させる）。
 npx wrangler secret put GEMINI_API_KEY --cwd worker
 
 # 5) デプロイ
@@ -67,6 +84,20 @@ npm --prefix worker run dev
 ```
 
 `.dev.vars`（gitignore 済み）に `GEMINI_API_KEY=...` を書けばローカル実行時にも読み込める（[wrangler のドキュメント](https://developers.cloudflare.com/workers/configuration/secrets/#local-development-with-secrets)参照）。
+
+## テスト・型チェック
+
+worker は独立した npm プロジェクトのため、ルートとは別にコマンドを実行する（ルート [build-commands.md](../.claude/rules/build-commands.md) 参照）。
+
+```bash
+npm --prefix worker run typecheck   # tsc --noEmit
+npm --prefix worker test            # vitest run（ユニットテスト）
+```
+
+ユニットテスト（[vitest](https://vitest.dev/)）は `fetch`・`jose` をモックし、外部通信なしで純ロジックを検証する:
+- `src/llm/__tests__/gemini.test.ts` — Gemini 実装（モデル解決・ロール写像・構造化出力・エラー写像・タイムアウト）
+- `src/llm/__tests__/provider.test.ts` — プロバイダセレクタ（既定 gemini・未対応時エラー）
+- `src/__tests__/auth.test.ts` — Firebase ID トークン検証（ヘッダ/クレーム検証の分岐）
 
 ## クライアント側の切替
 

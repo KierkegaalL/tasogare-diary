@@ -38,7 +38,7 @@ graph TD
   WK -->|サーバ側のみ| CL
 ```
 
-> **実装メモ（Phase2）**: Firebase Blaze プラン回避のため、AI 連携は Firebase Functions（Cloud Functions）ではなく **Cloudflare Workers**（`worker/`）で実装している。Firebase は Auth/Firestore のみ（Spark プラン）。また、当初 Anthropic（Claude）を想定していたが、無料運用のため **Google Gemini API** に変更した（`worker/src/llm.ts`）。詳細は [environments.md](../.claude/rules/environments.md)、[api-contract.md](api-contract.md)、[worker/README.md](../worker/README.md)。
+> **実装メモ（Phase2）**: Firebase Blaze プラン回避のため、AI 連携は Firebase Functions（Cloud Functions）ではなく **Cloudflare Workers**（`worker/`）で実装している。Firebase は Auth/Firestore のみ（Spark プラン）。また、当初 Anthropic（Claude）を想定していたが、無料運用のため **Google Gemini API** に変更した（`worker/src/llm/`。プロバイダ抽象化済みで別 API へ移管容易）。詳細は [environments.md](../.claude/rules/environments.md)、[api-contract.md](api-contract.md)、[worker/README.md](../worker/README.md)。
 
 ### 1.2 レイヤ責務（モバイル）
 | レイヤ | 責務 | 主なもの |
