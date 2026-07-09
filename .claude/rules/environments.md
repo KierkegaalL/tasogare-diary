@@ -4,7 +4,7 @@
 
 ## 環境一覧
 
-| 環境 | 用途 | Firebase プロジェクト | Claude API |
+| 環境 | 用途 | Firebase プロジェクト | AI API |
 |---|---|---|---|
 | `dev` | ローカル開発 | `tasogare-diary-dev`（想定） | dev キー |
 | `staging` | 検証・社内配布 | `tasogare-diary-staging`（想定） | staging キー |
@@ -14,22 +14,33 @@
 
 | 種別 | dev | staging | prod |
 |---|---|---|---|
-| Firebase Functions | `http://localhost:5001/.../us-central1` （エミュレータ） | `https://<region>-tasogare-diary-staging.cloudfunctions.net` | `https://<region>-tasogare-diary-prod.cloudfunctions.net` |
-| Claude API | `https://api.anthropic.com`（Functions 経由で呼び出し。クライアントから直叩きしない） | 同左 | 同左 |
+| AI 連携プロキシ（Cloudflare Worker） | `http://localhost:8787`（`wrangler dev`） | `https://tasogare-diary-claude-proxy-staging.<subdomain>.workers.dev`（想定） | `https://tasogare-diary-claude-proxy.<subdomain>.workers.dev`（想定） |
+| Gemini API | `https://generativelanguage.googleapis.com`（Worker 経由で呼び出し。クライアントから直叩きしない） | 同左 | 同左 |
 | Web ダッシュボード（Firebase Hosting） | `http://localhost:3000`（Next.js dev） | `https://staging.tasogare-diary.app`（想定） | `https://tasogare-diary.app`（想定） |
 
-> **重要**: Claude API キーはクライアントに埋め込まず、必ず Firebase Functions 経由で呼び出す（[constraints.md](constraints.md) のプライバシー方針参照）。
+> **重要**: AI API キーはクライアントに埋め込まず、必ずサーバ側プロキシ（Cloudflare Worker）経由で呼び出す（[constraints.md](constraints.md) のプライバシー方針参照）。
 
-## Claude モデル設定（確定事項 U-12）
+## AI モデル設定（確定事項 U-12・2026-07-09 改定: 無料運用のため Gemini へ変更）
 
-用途別にモデルを使い分け、環境変数（Functions config / Secrets）で差し替え可能にする（[api-contract.md](../../docs/api-contract.md) 第1.3節）。
+用途別にモデルを使い分け、環境変数（Secrets/vars）で差し替え可能にする（[api-contract.md](../../docs/api-contract.md) 第1.3節）。
+
+> **プロバイダ変更の経緯**: 当初 Anthropic（Claude Haiku 4.5 / Sonnet 5）を採用していたが、**課金を発生させず無料枠で運用したい**というユーザー方針により、**Google Gemini API（Gemini Developer API・無料枠）**に変更した。将来アプリが軌道に乗る／AI 能力に不満が出た場合は Anthropic 等の有料 API へ戻す可能性がある（`worker/src/llm.ts` の実装差し替えのみで対応できる設計）。
 
 | 用途 | モデル（既定） |
 |---|---|
-| 連想語提案 / AI対話 / 調整 | `claude-haiku-4-5-20251001`（Haiku 4.5） |
-| 日記文生成 / 週次・月次まとめ | `claude-sonnet-5`（Sonnet 5） |
+| 連想語提案 / AI対話 / 調整 | `gemini-3.1-flash-lite`（低遅延・低コスト） |
+| 日記文生成 / 週次・月次まとめ | `gemini-3.5-flash`（品質優先） |
 
-> モデル ID は環境変数（例: `CLAUDE_MODEL_INTERACTIVE` / `CLAUDE_MODEL_GENERATE`）で上書き可能とし、dev/staging/prod で切り替えられるようにする。
+> モデル ID は環境変数（例: `GEMINI_MODEL_INTERACTIVE` / `GEMINI_MODEL_GENERATE`）で上書き可能とし、dev/staging/prod で切り替えられるようにする。
+
+## AI 実接続プロキシ（Phase2・Cloudflare Workers）
+
+**Firebase は Spark プラン（無料枠）を維持する**方針のため、AI 連携は **Firebase Functions ではなく Cloudflare Workers 経由**で呼び出す（クライアント直叩き禁止）。Firebase Functions（Cloud Functions）は世代を問わず Blaze プラン必須のため採用しない。実装は `worker/`（別 npm プロジェクト・TypeScript／Cloudflare Workers ランタイム）。詳細・デプロイ手順は [worker/README.md](../../worker/README.md)。
+
+- **Gemini API キー**は Cloudflare の Secret に保持（`wrangler secret put GEMINI_API_KEY`）。**リポジトリ／`.env`／クライアントには置かない**（[constraints.md](constraints.md)）。
+- **認証**: Firebase Callable の `context.auth` は使えないため、クライアントが取得した **Firebase ID トークン**を `Authorization: Bearer` で送り、Worker 側がサードパーティ JWT ライブラリ（`jose`）で検証する（`worker/src/auth.ts`）。Firebase 側は **Spark プランのまま**（Firestore/Authentication のみ使用、Functions は使わない）。
+- モデルは Worker の環境変数 `GEMINI_MODEL_INTERACTIVE` / `GEMINI_MODEL_GENERATE`（上表・`wrangler.jsonc` の `vars`）で差し替え可能。
+- クライアントは `isClaudeWorkerConfigured`（`EXPO_PUBLIC_CLAUDE_WORKER_URL` の有無、`src/services/claudeWorker/config.ts`）により **モック（未設定）↔ Worker（設定済）** を自動切替する（`src/services/diaryApi.ts`）。ディレクトリ名・関数名に `claudeWorker` を残しているが、裏側の LLM プロバイダとは独立させている（`worker/README.md` 参照）。
 
 ## デバイス要件
 
