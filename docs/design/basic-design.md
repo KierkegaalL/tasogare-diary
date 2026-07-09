@@ -256,7 +256,7 @@ graph TD
 ### 5.3 ローカル保存とクラウド同期
 - 入力途中の下書き（各ステップの選択語）はローカルに保持し、オフラインでも中断・再開できる（`constraints.md`）。
 - 確定エントリは Firestore に保存し、オフライン永続化で復帰時に同期。
-- **保存先は確定**: 下書き＝MMKV（端末ローカル）、確定エントリ＝Firestore（オフライン永続化）。詳細は [data.md](../data.md) 第8章／[architecture.md](../architecture.md) 第7章。
+- **保存先は確定**: 下書き＝AsyncStorage（端末ローカル、実装済み。将来 MMKV へ差し替え可能な抽象）、確定エントリ＝Firestore（オフライン永続化）。詳細は [data.md](../data.md) 第8章／[architecture.md](../architecture.md) 第4.3/7章。
 
 | 要件トレース（第5章） | 対応元 |
 |---|---|

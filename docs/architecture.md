@@ -138,7 +138,7 @@ stateDiagram-v2
 ## 4. 状態管理方針
 
 ### 4.1 方針（決定）
-> **決定（2026-07-07）**: 下表の推奨（**Zustand ＋ TanStack Query**、下書きは MMKV 永続）を採用。
+> **決定（2026-07-07）**: 下表の推奨（**Zustand ＋ TanStack Query**、下書きは永続化）を採用。永続化の実装は当面 **AsyncStorage**（開発ビルド移行時に MMKV へ差し替え可能。詳細は第4.3節）。
 
 | 対象 | 採用 | 理由 |
 |---|---|---|
@@ -158,7 +158,7 @@ stateDiagram-v2
 - **Firebase プロバイダ**: `EXPO_PUBLIC_FIREBASE_*` 設定を検出したら切り替える。**当面は配布しない**前提のため既定は **匿名認証（Firebase Auth Anonymous、JS SDK）** ＝ 開発ビルド不要・Expo Go 可で実 uid を確立する。uid は Firestore（entries/messages）のスコープに用いる。設定プロバイダ失敗時（例: 初回起動オフライン）は authStore がローカル匿名へフォールバックする。**将来、任意のタイミングでアプリ配布も考慮**しており、その際は恒久アカウント（Webで見る/バックアップ）向けに Apple/Google サインインを匿名アカウントへ **リンク昇格** する。
 
 ### 4.3 下書き（オフライン）永続
-- **推奨**: `react-native-mmkv`（同期・高速）に `draftStore` を永続化。案B: `AsyncStorage`（標準・非同期）。
+- **実装済み**: MMKV はネイティブモジュールのため Expo Go では動かず、開発ビルド未導入の現段階では **案B（`AsyncStorage`、`services/storage.ts`）を採用**。`draftStore`（`src/stores/draftStore.ts`）を zustand の `persist` ミドルウェアで永続化し、アプリ再起動・強制終了後も下書き（mood/event/words/生成文/感情ラベル）が復元される。起動時のハイドレーション完了は `hasHydrated` フラグで管理し、`App.tsx` の起動ゲート（フォント/認証初期化と同様）で待ち合わせることで、復元前の入力が永続データで上書きされる競合を防止している。開発ビルド移行時は `KeyValueStorage` インターフェースを維持したまま MMKV アダプタへ差し替え可能。
 - 確定エントリは Firestore に保存し、オフライン永続化で復帰時同期（[constraints.md](../.claude/rules/constraints.md)）。
 
 ---
@@ -221,7 +221,7 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
   participant U as ユーザー
-  participant D as draftStore(+MMKV)
+  participant D as draftStore(+AsyncStorage)
   participant Q as TanStack Query
   participant FS as Firestore(offline)
   U->>D: 4ステップ入力（オフライン可）
