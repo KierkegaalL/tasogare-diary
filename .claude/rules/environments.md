@@ -66,3 +66,12 @@
   3. Authentication → Sign-in method → **匿名（Anonymous）を有効化**
   4. 取得値を `.env`（gitignore 済み）に設定 → 再起動で Firebase 匿名認証に切替
 - Apple/Google サインインは、恒久アカウントが要る段階（「Webで見る」/バックアップ）で **匿名アカウントへリンク**して昇格する（別タスク）。
+
+## Web ダッシュボード クライアント設定（Phase4・`web/`）
+
+Web ダッシュボード（`web/`・Next.js 静的エクスポート）は**モバイルと同一 Firebase プロジェクト**を参照する（同じ Firestore を読む）。設定値は `NEXT_PUBLIC_*` から読み込む（[web/.env.example](../../web/.env.example)、`web/src/lib/firebase.ts`）。**公開可能なクライアント値のみ**で、シークレットは含めない。
+
+- `NEXT_PUBLIC_FIREBASE_*`: モバイルの `EXPO_PUBLIC_FIREBASE_*` と同一プロジェクトの値。
+- `NEXT_PUBLIC_WORKER_URL`: Cloudflare Worker の URL（モバイルの `EXPO_PUBLIC_CLAUDE_WORKER_URL` と同一）。QRペアリング照合（`verifyPairingToken`）とまとめ取得（`generateInsight`）に使う。
+- 初回サインインは**モバイルの QR ペアリング**（`web/src/app/pair`・`web/src/app/connect`）。Apple/Google サインインは上記の恒久アカウント昇格タスクと合わせて対応する。詳細は [web/README.md](../../web/README.md)。
+- **対になるモバイル側変数**: QR に `<WEB_URL>/pair?token=…` のディープリンクを埋め込むには、モバイルの `EXPO_PUBLIC_WEB_URL` に Web デプロイ URL を設定する（`src/services/pairing.ts` の `pairingQrPayload`）。未設定時はトークン文字列のみを QR 化し、Web 側は `/connect` でその文字列を貼り付けて連携する。
