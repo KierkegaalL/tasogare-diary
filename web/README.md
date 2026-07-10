@@ -37,10 +37,25 @@ PC で日記を振り返るための **閲覧専用**ダッシュボード（[U-
 | 静的ビルド（`out/`） | `npm --prefix web run build` |
 | 型チェック | `npm --prefix web run typecheck` |
 
+## デプロイ（Firebase Hosting・staging/prod）
+
+リポジトリルートの [`firebase.json`](../firebase.json) の `hosting` セクションが `web/out`（静的エクスポート出力）を配信対象にしている（`cleanUrls: true` により `/entries.html` を `/entries` として配信）。プロジェクトの対応関係は [`.firebaserc`](../.firebaserc)（[environments.md](../.claude/rules/environments.md) の想定プロジェクトIDと一致）。
+
+```bash
+# 1. 静的ビルド
+npm --prefix web run build   # web/out/ を生成
+
+# 2. デプロイ（--project を必ず明示。誤って本番へ出さないよう default alias は設定していない）
+firebase deploy --only hosting --project staging
+firebase deploy --only hosting --project prod
+```
+
+> **前提**: `.firebaserc` の `tasogare-diary-staging` / `tasogare-diary-prod` は environments.md 記載の**想定**プロジェクトIDであり、実際に Firebase Console でプロジェクトを作成し `firebase login` 済みであることが必要。`dev` 環境は Hosting を使わずローカル (`npm --prefix web run dev`) で確認するため `.firebaserc` にエイリアスを持たない。
+
 ## 未対応（後続タスク）
 
 - **カメラでの QR ライブ読取**（`/connect`）: 現状は QR の内容（URL／コード）を貼り付けて連携する。カメラ読取は QR デコードライブラリ導入時に追加する。
 - **Apple/Google サインイン**（QR が使えない環境の代替。[screen.md](../docs/screen.md) 4.2）: 恒久アカウント昇格タスクと合わせて対応（[environments.md](../.claude/rules/environments.md)）。
 - ~~**日記本文の閲覧**（Firestore 直接読取）~~: 実装済み（`/entries`・[screen.md](../docs/screen.md) 4.3）。**検索・無限スクロール**（月ナビではなく通し閲覧）は後続。
 - **「過去3ヶ月」タブ**（[screen.md](../docs/screen.md) 4.1）: `generateInsight` が単一期間（weekly/monthly）のみ対応のため未実装。複数月集計の対応後に追加する。
-- **Firebase Hosting へのデプロイ設定**（`firebase.json` の hosting セクション等）。
+- ~~**Firebase Hosting へのデプロイ設定**~~: 実装済み（`firebase.json` の `hosting` セクション・`.firebaserc`）。実プロジェクト作成・CI 組み込みは後続。

@@ -22,6 +22,9 @@ npm-debug.*
 /android
 .kotlin/
 
+# Firebase CLI（deploy キャッシュ）
+.firebase/
+
 # OS
 .DS_Store
 *.pem

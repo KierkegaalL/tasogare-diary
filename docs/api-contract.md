@@ -281,7 +281,7 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
   - `pairings` は `uid` の `runQuery`（`select: __name__`）で該当文書のみ削除。
   - Auth ユーザー削除は Identity Toolkit Admin API（`accounts:delete`）を呼ぶため、**`datastore` とは別に `identitytoolkit` スコープのアクセストークン**を取得する（`worker/src/serviceAccount.ts` の `getIdentityToolkitAccessToken`。トークンはスコープごとにキャッシュ）。
   - 削除順序と冪等性は 6.1 を参照。**設定画面の削除導線 UI は未実装**（[screen.md](screen.md) 3.9 で「将来」の扱い。クライアントの API 層 `src/services/account.ts` のみ用意）。
-- **Web ダッシュボード（実装済み・Phase4）**: `web/`（Next.js・静的エクスポート／Firebase Hosting 前提）。QRペアリング照合でサインイン（5.2）し、`generateInsight`（3.5）から週次/月次まとめを取得して感情推移・よく使う言葉・AIまとめを表示する（閲覧専用・U-09）。Worker の API は既存のものを Web クライアント（`web/src/lib/worker.ts`）から呼ぶだけで、Worker 側の追加実装は不要。配色・型は `shared/`（`shared/theme/tokens.ts`・`shared/types/*`）をモバイルと共有。**未対応（後続）**: カメラ QR ライブ読取・Apple/Google サインイン代替・日記本文の閲覧・「過去3ヶ月」タブ・Hosting デプロイ設定（[web/README.md](../web/README.md)・[architecture.md](architecture.md) 第6章）。
+- **Web ダッシュボード（実装済み・Phase4）**: `web/`（Next.js・静的エクスポート／Firebase Hosting 前提）。QRペアリング照合でサインイン（5.2）し、`generateInsight`（3.5）から週次/月次まとめを取得して感情推移・よく使う言葉・AIまとめを表示する（閲覧専用・U-09）。Worker の API は既存のものを Web クライアント（`web/src/lib/worker.ts`）から呼ぶだけで、Worker 側の追加実装は不要。配色・型は `shared/`（`shared/theme/tokens.ts`・`shared/types/*`）をモバイルと共有。日記本文の閲覧（`/entries`・Firestore 直読）と Hosting デプロイ設定（`firebase.json`/`.firebaserc`）も実装済み。**未対応（後続）**: カメラ QR ライブ読取・Apple/Google サインイン代替・「過去3ヶ月」タブ・`/entries` の検索/無限スクロール（[web/README.md](../web/README.md)・[architecture.md](architecture.md) 第6章）。
 - **未対応（将来）**: `chat` のサーバ側文脈補完（当該エントリ本文・過去要約）は現状クライアントの直近履歴のみを送信。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
 
 ### 未確定
