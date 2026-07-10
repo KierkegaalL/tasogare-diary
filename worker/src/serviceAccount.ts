@@ -1,11 +1,12 @@
 import { ApiError } from './llm';
 import type { Env } from './env';
 
-// Firebase サービスアカウント（Admin 権限）を用いた署名処理（QRペアリング）。
+// Firebase サービスアカウント（Admin 権限）を用いた署名・トークン取得。
 // - カスタムトークン発行（verifyPairingToken）: Firebase カスタムトークン = サービスアカウント秘密鍵で
 //   RS256 署名した JWT（identitytoolkit 向け）。Firebase Admin SDK を使わず WebCrypto で自前署名する。
-// - Firestore Admin アクセス（pairings の照合/消費）: サービスアカウントで Google OAuth2 アクセストークンを
-//   取得し、Firestore REST を Bearer 認証で呼ぶ。
+// - Firestore Admin アクセス（pairings の照合/消費、insights の集計・保存、deleteAccount の削除）:
+//   サービスアカウントで Google OAuth2 アクセストークンを取得し、Firestore REST を Bearer 認証で呼ぶ。
+// - Identity Toolkit Admin アクセス（deleteAccount の Auth ユーザー削除）: 別スコープのアクセストークンを使う。
 // - 秘密鍵は Worker Secret（FIREBASE_SERVICE_ACCOUNT）にのみ保持。リポジトリ／クライアントには置かない。
 
 interface ServiceAccount {
@@ -18,6 +19,8 @@ const IDENTITY_TOOLKIT_AUD =
   'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit';
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const FIRESTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
+// Auth ユーザー削除（deleteAccount）で identitytoolkit の Admin API を呼ぶためのスコープ。
+const IDENTITY_TOOLKIT_SCOPE = 'https://www.googleapis.com/auth/identitytoolkit';
 
 function parseServiceAccount(env: Env): ServiceAccount {
   if (!env.FIREBASE_SERVICE_ACCOUNT) {
@@ -117,19 +120,20 @@ export async function mintCustomToken(env: Env, uid: string): Promise<string> {
   );
 }
 
-// Firestore Admin アクセス用の Google OAuth2 アクセストークン（インスタンス内でキャッシュ）。
-let cachedAccessToken: { token: string; expiresAt: number } | undefined;
+// Google OAuth2 アクセストークン（インスタンス内でスコープごとにキャッシュ）。
+const cachedAccessTokens = new Map<string, { token: string; expiresAt: number }>();
 
-export async function getFirestoreAccessToken(env: Env): Promise<string> {
+async function getAccessToken(env: Env, scope: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  if (cachedAccessToken && cachedAccessToken.expiresAt - 60 > now) {
-    return cachedAccessToken.token;
+  const cached = cachedAccessTokens.get(scope);
+  if (cached && cached.expiresAt - 60 > now) {
+    return cached.token;
   }
   const sa = parseServiceAccount(env);
   const assertion = await signRs256Jwt(
     {
       iss: sa.clientEmail,
-      scope: FIRESTORE_SCOPE,
+      scope,
       aud: TOKEN_ENDPOINT,
       iat: now,
       exp: now + 3600,
@@ -158,11 +162,21 @@ export async function getFirestoreAccessToken(env: Env): Promise<string> {
   if (!body.access_token) {
     throw new ApiError(500, 'internal', 'サーバ設定エラーが発生しました。');
   }
-  cachedAccessToken = {
+  cachedAccessTokens.set(scope, {
     token: body.access_token,
     expiresAt: now + (body.expires_in ?? 3600),
-  };
+  });
   return body.access_token;
+}
+
+// Firestore REST（Admin）用。
+export function getFirestoreAccessToken(env: Env): Promise<string> {
+  return getAccessToken(env, FIRESTORE_SCOPE);
+}
+
+// Identity Toolkit REST（Admin。Auth ユーザー削除）用。
+export function getIdentityToolkitAccessToken(env: Env): Promise<string> {
+  return getAccessToken(env, IDENTITY_TOOLKIT_SCOPE);
 }
 
 export function serviceAccountProjectId(env: Env): string {
@@ -173,5 +187,5 @@ export function serviceAccountProjectId(env: Env): string {
 export function __resetServiceAccountCaches(): void {
   cachedKey = undefined;
   cachedKeyPem = undefined;
-  cachedAccessToken = undefined;
+  cachedAccessTokens.clear();
 }

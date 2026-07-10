@@ -246,9 +246,10 @@ service cloud.firestore {
 - **アクセス**: 全データ uid スコープ（第6章）。
 - **Claude 送信最小化**: 応答生成に必要な最小限のみ送信。日記本文の二次利用（学習等）なし。送信ペイロードや本文をログに残さない（[constraints.md](../.claude/rules/constraints.md)）。
 - **削除（アカウント/日記）**: ユーザーは自分の日記・アカウントを削除可能。**削除時は関連データを確実に削除**する。
-  - 実装（案）: Cloud Function（Auth `onDelete` トリガ or 明示呼び出し）で `users/{uid}` サブツリーを削除（`entries`＋`messages`＋`wordStats`＋`insights`）し、`pairings` の当該 `uid` 文書も削除。Firestore はサブツリー一括削除 API を持たないため、`firebase-admin` の `recursiveDelete()`（または子コレクションを列挙して削除する自前実装）を用いる。
-  - 日記単体削除は `entries/{entryId}` とその `messages` を削除し、`wordStats` を再集計（Functions）。
-- **保持**: 明示削除まで保持。ペアリングトークンは TTL（60秒）で自動失効・削除。
+  - **実装（Phase4・実装済み）**: Cloud Functions は不採用のため、**Cloudflare Workers の `deleteAccount`**（`worker/src/account.ts`。要認証・明示呼び出し）が担う。`users/{uid}` サブツリー（`entries`＋`messages`＋`wordStats`＋`insights`）→ `pairings` の当該 `uid` 文書 → Auth ユーザー の順に削除する。**Auth を最後にする**のは途中失敗時に同じ ID トークンで再実行できるようにするため。Firestore REST にはサブツリー一括削除 API が無く `firebase-admin` の `recursiveDelete()` も使えないため、**collection group クエリ**（`allDescendants=true`）でコレクション ID ごとに子孫を1回で集め `documents:commit` で一括削除する自前実装（`worker/src/firestore.ts` の `deleteUserData`）。ドキュメントを1件ずつ再帰的に辿ると Cloudflare Workers のサブリクエスト上限（無料プランで50）に達しうるため、呼び出し回数をデータ量に依存させない設計にしている。取得は `select: ['__name__']` でキーのみを読み、本文は取得しない。冪等性は「存在しない文書の delete は no-op」「Auth の `USER_NOT_FOUND` は成功扱い」で担保（[api-contract.md](api-contract.md) 6.1・§10）。
+  - 日記単体削除は `entries/{entryId}` とその `messages` をクライアントが削除する（`wordStats` 再集計は Cloud Functions トリガ前提のため現状行われない。3.4 の実装メモ参照）。
+  - **UI（設定画面の削除導線）は未実装**（[screen.md](screen.md) 3.9 で「将来」の扱い）。クライアントは API 層 `src/services/account.ts` のみ用意している。
+- **保持**: 明示削除まで保持。ペアリングトークンは失効後も残る（TTL ポリシー未設定。3.6 の実装メモ参照）が、アカウント削除時には当該 `uid` の分をまとめて削除する。
 
 ---
 

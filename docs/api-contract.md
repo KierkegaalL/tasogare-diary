@@ -228,17 +228,21 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 ## 6. アカウント・データ削除
 
 ### 6.1 `deleteAccount` — アカウント削除（要認証）
-- 処理: `users/{uid}` サブツリーを `recursiveDelete`（`entries`＋`messages`＋`wordStats`＋`insights`）、`pairings` の当該 uid を削除、Auth ユーザー削除（[data.md](data.md) 第7章）。
+- 処理: `users/{uid}` サブツリーを再帰削除（`entries`＋`messages`＋`wordStats`＋`insights`）、`pairings` の当該 uid を削除、Auth ユーザー削除（[data.md](data.md) 第7章）。**実装済み**（`worker/src/account.ts`）。
+- Request: `{}`（uid は ID トークンから確定。クライアントは削除対象を指定できない）。
 - Response: `{ "deleted": true }`。
 - 冪等: 途中失敗時も再実行で完了できるようにする。
-- 日記単体削除はクライアントが `entries/{id}`＋`messages` を削除し、`wordStats` 再集計を Functions が実施。
+- **削除順序**: Firestore サブツリー → `pairings` → Auth ユーザー の順。**Auth を最後にする**のは、途中で失敗しても同じ uid・ID トークンで再実行できるようにするため（Auth を先に消すと、本人が再認証できずデータだけ残る孤児状態になる）。
+- **冪等性の担保**: Firestore の delete は存在しないドキュメントに対して no-op。Auth ユーザー削除は `USER_NOT_FOUND` を成功として扱う。
+- 日記単体削除はクライアントが `entries/{id}`＋`messages` を削除する（`wordStats` 再集計は Cloud Functions トリガ前提のため現状行われない。3.4 の実装メモ参照）。
 
 ---
 
 ## 7. レート制限・リトライ・タイムアウト
 
 - **クライアント再試行**: `unavailable`/`deadline-exceeded`/`resource-exhausted` のみ指数バックオフで数回。入力・下書きは保持。
-- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウトを設定。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm/gemini.ts`）。
+- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウト（25秒/試行）を設定。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm/gemini.ts`）。
+- **サーバ側リトライ**: Gemini の 5xx（過負荷。生ステータスに関わらず `unavailable`/503 に正規化される）は初回失敗時に600ms待って**1回だけ**自動リトライする（合計最大2試行）。429（レート制限）・400/401/403、およびクライアント側タイムアウト（`AbortController` 由来の `deadline-exceeded`/504・ネットワーク断）はリトライ対象外（待っても状況が変わりにくいため）。**理論上の最大待ち時間**は 1試行あたりのタイムアウト25秒×合計2試行＋リトライ待機0.6秒 ≒ 50.6秒（実運用では5xx応答自体は速いため通常はここまで伸びない）。
 - **多重防止**: 保存・削除・ペアリング消費はサーバ側で状態（`consumed` 等）を検証し二重実行を防ぐ。
 
 ---
@@ -270,7 +274,13 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 - **LLM プロバイダ抽象（移管容易化）**: Worker 側の LLM 呼び出しは `worker/src/llm/`（`types.ts`=`LlmProvider` インターフェース／`gemini.ts`=Gemini 実装／`index.ts`=`LLM_PROVIDER` によるセレクタ）に抽象化済み。`worker/src/index.ts` は用途（`purpose: 'interactive'|'generate'`）を指定するのみでモデル ID・プロバイダ固有仕様に依存しない。**将来 Anthropic 等へ移管する場合はプロバイダ実装を1ファイル追加＋セレクタに分岐追加のみ**（詳細は [worker/README.md](../worker/README.md) の「LLM プロバイダ抽象」）。worker のユニットテスト（vitest）は `worker/src/**/__tests__/`。
 - **QRペアリング（実装済み・Phase3）**: `createPairingToken`（要認証。60秒の短命トークンを `pairings` に作成）・`verifyPairingToken`（未サインイン可。照合・消費しカスタムトークンを返す）を Cloudflare Workers で実装（`worker/src/pairing.ts`）。**カスタムトークン発行と Firestore Admin アクセスのため Firebase サービスアカウント秘密鍵（`FIREBASE_SERVICE_ACCOUNT` Secret）を導入**。Firebase Admin SDK は使わず、WebCrypto（RS256）で JWT を自前署名（`worker/src/serviceAccount.ts`）、Firestore REST（Admin アクセストークン）で `pairings` を照合・消費（`worker/src/firestore.ts`）。二重消費は `updateTime` precondition で防止。`firestore.rules` は `pairings` へのクライアント直接アクセスを全面禁止（Admin のみ）。モバイルは `WebConnectScreen` で60秒ごとに QR を再発行（`src/services/pairing.ts`）。**Web 側の照合UI（`verifyPairingToken` 呼び出し・`signInWithCustomToken`）は Web ダッシュボード実装時に対応**。**`WebConnectScreen` の「または＋Apple/Google サインイン」代替導線（[screen.md](screen.md) 3.10）は本 PR では未実装**（恒久アカウント／サインインは別タスク。[environments.md](../.claude/rules/environments.md) の「Apple/Google サインインへの昇格」参照）。`expiresAt` はレスポンスでミリ秒付き ISO8601（`toISOString()`）を返す（5.1 のサンプルはミリ秒省略表記だが、いずれも有効な ISO8601）。
 - **週次/月次まとめ（実装済み・Phase4）**: `generateInsight`（3.5）を Cloudflare Workers で実装（`worker/src/insight.ts`）。**表示時オンデマンド生成＋キャッシュ**方式（basic-design.md 4.3 案B の折衷のうち、定期バッチ側は未実装）。集計は Firestore REST（Admin）の `runQuery` で `users/{uid}/entries` を `date` 範囲検索して算出し（`worker/src/firestore.ts` の `queryEntriesByDateRange`、`select` で `date`/`mood`/`words` のみ射影）、結果を `users/{uid}/insights/{periodId}` へ Admin 権限で保存する（`saveInsight`。クライアントは `firestore.rules` により書込不可）。**LLM へ送るのは集計値のみで日記本文は送らない**。`source.model` 記録のため `LlmProvider` に `modelFor(purpose)` を追加した（`worker/src/llm/types.ts`）。**定期バッチ（Cron Triggers）による事前生成は未実装**（全ユーザー列挙が必要で、Workers から `users` コレクション全走査は費用・権限設計の検討が要るため。オンデマンド＋キャッシュで実用上は充足）。`wordStats`（data.md 3.4）は Cloud Functions トリガ前提の集計先で、現状どこからも更新されないため参照していない。
-- **未実装（別タスク）**: `deleteAccount`（第6章）。アカウント削除を伴うため、着手時に方式を確定する。
+- **アカウント削除（実装済み・Phase4）**: `deleteAccount`（第6章）を Cloudflare Workers で実装（`worker/src/account.ts`）。Firebase Admin SDK の `recursiveDelete()` は使えないため、**collection group クエリ**（`runQuery` の `from[].allDescendants=true`）でコレクション ID ごとに任意の深さの子孫を1回で集め、`documents:commit`（バッチ書込・500件ずつ）で一括削除する（`worker/src/firestore.ts` の `deleteUserData`）。
+  - **ドキュメントを1件ずつ再帰的に辿らない理由**: Cloudflare Workers には「1リクエストあたりのサブリクエスト数」上限（無料プランで50）があり、素朴な再帰では日記の件数に比例して Firestore 呼び出しが増え、エントリが数十件を超えると上限に達する。collection group クエリならデータ量によらず**コレクション ID の数だけの呼び出し（数回）で一定**になる。
+  - 取得は `select: ['__name__']`（キーのみ射影）で、**日記本文は一切読まない**。
+  - 対象コレクション ID は既知スキーマ（`entries`/`messages`/`wordStats`/`insights`。3.2〜3.5）を用いる。`users/{uid}` 直下に未知のコレクションがあれば `listCollectionIds` で検出して削除対象に加える（さらに深い階層の未知コレクションは検出できない。スキーマ変更時は上記の定数も更新すること）。
+  - `pairings` は `uid` の `runQuery`（`select: __name__`）で該当文書のみ削除。
+  - Auth ユーザー削除は Identity Toolkit Admin API（`accounts:delete`）を呼ぶため、**`datastore` とは別に `identitytoolkit` スコープのアクセストークン**を取得する（`worker/src/serviceAccount.ts` の `getIdentityToolkitAccessToken`。トークンはスコープごとにキャッシュ）。
+  - 削除順序と冪等性は 6.1 を参照。**設定画面の削除導線 UI は未実装**（[screen.md](screen.md) 3.9 で「将来」の扱い。クライアントの API 層 `src/services/account.ts` のみ用意）。
 - **未対応（将来）**: `chat` のサーバ側文脈補完（当該エントリ本文・過去要約）は現状クライアントの直近履歴のみを送信。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
 
 ### 未確定

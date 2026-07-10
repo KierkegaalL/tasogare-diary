@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   consumePairing,
   createPairing,
+  deletePairingsForUid,
+  deleteUserData,
   getInsight,
   getPairing,
   queryEntriesByDateRange,
@@ -287,5 +289,149 @@ describe('saveInsight', () => {
     });
     expect(fields.generatedAt).toEqual({ timestampValue: '2026-07-06T00:00:00.000Z' });
     expect(fields.schemaVersion).toEqual({ integerValue: '1' });
+  });
+});
+
+describe('deleteUserData', () => {
+  // URL から呼び出し種別を判定してレスポンスを返すヘルパ。
+  function routeFetch(opts: {
+    discovered?: string[];
+    // collectionId → その collection group クエリで返すドキュメントパス
+    docsByCollection?: Record<string, string[]>;
+  }) {
+    return (url: string, init: RequestInit) => {
+      if (url.endsWith(':listCollectionIds')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ collectionIds: opts.discovered ?? [] }),
+        });
+      }
+      if (url.endsWith(':runQuery')) {
+        const q = JSON.parse(init.body as string).structuredQuery;
+        const paths = opts.docsByCollection?.[q.from[0].collectionId] ?? [];
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => paths.map((p) => ({ document: { name: `${DOCS_BASE}/${p}` } })),
+        });
+      }
+      if (url.endsWith(':commit')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }
+      throw new Error(`unexpected call: ${init.method} ${url}`);
+    };
+  }
+
+  function commitCalls() {
+    return fetchMock.mock.calls.filter(([url]) => (url as string).endsWith(':commit'));
+  }
+
+  it('既知の各コレクションを allDescendants の runQuery で1回ずつ引き、最後に親を消す', async () => {
+    fetchMock.mockImplementation(
+      routeFetch({
+        discovered: ['entries', 'insights'],
+        docsByCollection: {
+          entries: ['users/u1/entries/e1'],
+          messages: ['users/u1/entries/e1/messages/m1'],
+          insights: ['users/u1/insights/weekly_2026-W27'],
+          wordStats: [],
+        },
+      }),
+    );
+
+    const count = await deleteUserData(ENV, 'u1');
+    expect(count).toBe(4); // e1, m1, insight, users/u1
+
+    const queries = fetchMock.mock.calls.filter(([url]) => (url as string).endsWith(':runQuery'));
+    // entries / messages / wordStats / insights の4種。データ量に依らず一定回数。
+    expect(queries).toHaveLength(4);
+    for (const [url, init] of queries as [string, RequestInit][]) {
+      expect(url).toBe(`${DOCS_BASE}/users/u1:runQuery`);
+      const q = JSON.parse(init.body as string).structuredQuery;
+      expect(q.from[0].allDescendants).toBe(true);
+      // 本文は読まない（キーのみ射影）。
+      expect(q.select.fields).toEqual([{ fieldPath: '__name__' }]);
+    }
+
+    const writes = JSON.parse((commitCalls()[0]![1] as RequestInit).body as string).writes as {
+      delete: string;
+    }[];
+    expect(writes[writes.length - 1]!.delete).toBe(`${DOCS_BASE}/users/u1`);
+  });
+
+  it('既知スキーマに無い直下コレクションも削除対象に加える', async () => {
+    fetchMock.mockImplementation(
+      routeFetch({ discovered: ['legacyNotes'], docsByCollection: { legacyNotes: ['users/u1/legacyNotes/n1'] } }),
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const count = await deleteUserData(ENV, 'u1');
+    expect(count).toBe(2); // n1 + users/u1
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('子が無ければ親ドキュメントだけを消す', async () => {
+    fetchMock.mockImplementation(routeFetch({}));
+    expect(await deleteUserData(ENV, 'u1')).toBe(1);
+  });
+
+  it('500件を超える削除は commit を複数回に分割する', async () => {
+    const many = Array.from({ length: 600 }, (_, i) => `users/u1/entries/e${i}`);
+    fetchMock.mockImplementation(routeFetch({ docsByCollection: { entries: many } }));
+
+    expect(await deleteUserData(ENV, 'u1')).toBe(601); // 600 + users/u1
+
+    const calls = commitCalls();
+    expect(calls).toHaveLength(2);
+    const sizes = calls.map((c) => JSON.parse((c[1] as RequestInit).body as string).writes.length);
+    expect(sizes).toEqual([500, 101]);
+  });
+
+  it('listCollectionIds が 404 でも既知コレクションの削除は行う', async () => {
+    fetchMock.mockImplementation((url: string, init: RequestInit) => {
+      if (url.endsWith(':listCollectionIds')) {
+        return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+      }
+      if (url.endsWith(':runQuery')) return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      if (url.endsWith(':commit')) return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      throw new Error(`unexpected: ${init.method} ${url}`);
+    });
+    expect(await deleteUserData(ENV, 'u1')).toBe(1);
+  });
+});
+
+describe('deletePairingsForUid', () => {
+  it('uid で runQuery し、ヒットした文書を commit で削除する', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith(':runQuery')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [
+            { document: { name: `${DOCS_BASE}/pairings/tok-1` } },
+            { readTime: 't' }, // ヒットしない行
+          ],
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    });
+
+    expect(await deletePairingsForUid(ENV, 'u1')).toBe(1);
+
+    const [queryUrl, queryInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(queryUrl).toBe(`${DOCS_BASE}:runQuery`);
+    const q = JSON.parse(queryInit.body as string).structuredQuery;
+    expect(q.from).toEqual([{ collectionId: 'pairings' }]);
+    // 他ユーザーの pairings を消さないよう uid で必ず絞る。
+    expect(q.where.fieldFilter).toMatchObject({ op: 'EQUAL', value: { stringValue: 'u1' } });
+    expect(q.select.fields).toEqual([{ fieldPath: '__name__' }]);
+  });
+
+  it('該当が無ければ commit を呼ばず 0 を返す', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => [{ readTime: 't' }] });
+    expect(await deletePairingsForUid(ENV, 'u1')).toBe(0);
+    expect(fetchMock.mock.calls.filter(([u]) => (u as string).endsWith(':commit'))).toHaveLength(0);
   });
 });

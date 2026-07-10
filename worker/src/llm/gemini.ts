@@ -20,6 +20,10 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Gemini 呼び出しのタイムアウト（api-contract.md 第7章: 上限を設けて deadline-exceeded を制御）。
 const REQUEST_TIMEOUT_MS = 25_000;
 
+// Gemini 側の 5xx（過負荷）に対する再試行回数・待機時間。
+const MAX_GEMINI_ATTEMPTS = 2;
+const GEMINI_RETRY_DELAY_MS = 600;
+
 // 用途別モデル（無料枠で利用可能な Gemini 2.5/3.x 系の安定版）を env から解決する。
 function resolveModel(env: GeminiEnv, purpose: LlmPurpose): string {
   if (purpose === 'generate') {
@@ -67,6 +71,9 @@ async function mapGeminiError(response: Response): Promise<ApiError> {
     return new ApiError(500, 'internal', 'サーバ設定エラーが発生しました。');
   }
   if (status >= 500) {
+    // Gemini 側の 5xx は原因（過負荷/モデル不正/一時障害等）が外形から分からないため、
+    // 診断用にステータスと status 種別のみ記録する（本文・プロンプトは含まない）。
+    console.error('Gemini server error', status, body.error?.status);
     return new ApiError(503, 'unavailable', '一時的に応答できませんでした。再度お試しください。');
   }
   console.error('Unexpected Gemini error', status, body.error?.status);
@@ -108,34 +115,51 @@ async function callGemini(env: GeminiEnv, opts: LlmCallOptions): Promise<GeminiR
     generationConfig,
   };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const url = `${API_BASE}/${resolveModel(env, opts.purpose)}:generateContent`;
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE}/${resolveModel(env, opts.purpose)}:generateContent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': env.GEMINI_API_KEY,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new ApiError(504, 'deadline-exceeded', '応答に時間がかかりすぎたため中断しました。再度お試しください。');
+  // Gemini の生ステータスに関わらず mapGeminiError で 503(unavailable) に正規化される
+  // 5xx 全般（過負荷等）は短時間の待機で解消することが多いため、1回だけ再試行する。
+  // 429（レート制限）・400/401/403、および fetch 自体の例外由来の 504/503（AbortError・
+  // ネットワーク断。mapGeminiError を経由しない）は待っても状況が変わりにくいため対象外。
+  for (let attempt = 1; attempt <= MAX_GEMINI_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': env.GEMINI_API_KEY,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new ApiError(504, 'deadline-exceeded', '応答に時間がかかりすぎたため中断しました。再度お試しください。');
+        }
+        throw new ApiError(503, 'unavailable', 'ネットワークエラーが発生しました。再度お試しください。');
+      }
+    } finally {
+      clearTimeout(timeout);
     }
-    throw new ApiError(503, 'unavailable', 'ネットワークエラーが発生しました。再度お試しください。');
-  } finally {
-    clearTimeout(timeout);
+
+    if (response.ok) {
+      return (await response.json()) as GeminiResponse;
+    }
+
+    const error = await mapGeminiError(response);
+    if (error.status !== 503 || attempt === MAX_GEMINI_ATTEMPTS) {
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, GEMINI_RETRY_DELAY_MS));
   }
 
-  if (!response.ok) {
-    throw await mapGeminiError(response);
-  }
-
-  return (await response.json()) as GeminiResponse;
+  // ループは必ず return/throw するため到達しないが、TypeScript の網羅性チェック用。
+  throw new ApiError(503, 'unavailable', '一時的に応答できませんでした。再度お試しください。');
 }
 
 // GeminiEnv から LlmProvider を生成する（fetch ベースのためクライアントキャッシュは不要）。

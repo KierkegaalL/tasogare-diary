@@ -6,6 +6,8 @@ import { getFirestoreAccessToken, serviceAccountProjectId } from './serviceAccou
 // - pairings（QRペアリング短命トークン）の作成・照合・消費（data.md 3.6 / api-contract.md 第5章）
 // - entries の期間集計・insights のキャッシュ読み書き（data.md 3.2/3.5 / api-contract.md 3.5）
 //   ※ insights はクライアントから書けない（firestore.rules）ため Admin 経由で書き込む。
+// - アカウント削除のサブツリー削除（data.md 第7章 / api-contract.md 第6章）
+//   ※ Firestore REST にはサブツリー一括削除 API が無いため、collection group クエリで子孫を集めて消す。
 
 function documentsBase(projectId: string): string {
   return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
@@ -14,6 +16,18 @@ function documentsBase(projectId: string): string {
 async function authHeaders(env: Env): Promise<Record<string, string>> {
   const token = await getFirestoreAccessToken(env);
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
+// Firestore REST を Admin 認証付きで呼ぶ。ネットワーク断は unavailable に写像する（レスポンスの
+// 判定は呼び出し側。404 を許容するかどうかがエンドポイントごとに違うため）。
+// 呼び出し側の headers は保持し、認証ヘッダを後勝ちで重ねる。
+async function firestoreFetch(env: Env, url: string, init: RequestInit): Promise<Response> {
+  try {
+    const headers = { ...(init.headers as Record<string, string> | undefined), ...(await authHeaders(env)) };
+    return await fetch(url, { ...init, headers });
+  } catch {
+    throw new ApiError(503, 'unavailable', '一時的に処理できませんでした。再度お試しください。');
+  }
 }
 
 // Firestore REST のエラー応答を api-contract のエラーコードへ写像。
@@ -66,12 +80,7 @@ export async function createPairing(
       consumed: { booleanValue: false },
     },
   };
-  let res: Response;
-  try {
-    res = await fetch(url, { method: 'POST', headers: await authHeaders(env), body: JSON.stringify(body) });
-  } catch {
-    throw new ApiError(503, 'unavailable', '一時的に処理できませんでした。再度お試しください。');
-  }
+  const res = await firestoreFetch(env, url, { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw await mapFirestoreError(res);
 }
 
@@ -79,12 +88,7 @@ export async function createPairing(
 export async function getPairing(env: Env, token: string): Promise<PairingDoc | null> {
   const projectId = serviceAccountProjectId(env);
   const url = `${documentsBase(projectId)}/pairings/${encodeURIComponent(token)}`;
-  let res: Response;
-  try {
-    res = await fetch(url, { method: 'GET', headers: await authHeaders(env) });
-  } catch {
-    throw new ApiError(503, 'unavailable', '一時的に処理できませんでした。再度お試しください。');
-  }
+  const res = await firestoreFetch(env, url, { method: 'GET' });
   if (res.status === 404) return null;
   if (!res.ok) throw await mapFirestoreError(res);
 
@@ -115,12 +119,7 @@ export async function consumePairing(env: Env, token: string, updateTime: string
     `${documentsBase(projectId)}/pairings/${encodeURIComponent(token)}` +
     `?updateMask.fieldPaths=consumed&currentDocument.updateTime=${encodeURIComponent(updateTime)}`;
   const body = { fields: { consumed: { booleanValue: true } } };
-  let res: Response;
-  try {
-    res = await fetch(url, { method: 'PATCH', headers: await authHeaders(env), body: JSON.stringify(body) });
-  } catch {
-    throw new ApiError(503, 'unavailable', '一時的に処理できませんでした。再度お試しください。');
-  }
+  const res = await firestoreFetch(env, url, { method: 'PATCH', body: JSON.stringify(body) });
   if (!res.ok) throw await mapFirestoreError(res);
 }
 
@@ -188,12 +187,7 @@ export async function queryEntriesByDateRange(
     },
   };
 
-  let res: Response;
-  try {
-    res = await fetch(url, { method: 'POST', headers: await authHeaders(env), body: JSON.stringify(body) });
-  } catch {
-    throw new ApiError(503, 'unavailable', '一時的に処理できませんでした。再度お試しください。');
-  }
+  const res = await firestoreFetch(env, url, { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) throw await mapFirestoreError(res);
 
   // runQuery は行の配列を返す。ヒットしない行には document が無い。
@@ -238,12 +232,7 @@ function insightUrl(projectId: string, uid: string, periodId: string): string {
 // users/{uid}/insights/{periodId} を取得する。存在しない・形が壊れている場合は null（再生成させる）。
 export async function getInsight(env: Env, uid: string, periodId: string): Promise<InsightDoc | null> {
   const projectId = serviceAccountProjectId(env);
-  let res: Response;
-  try {
-    res = await fetch(insightUrl(projectId, uid, periodId), { method: 'GET', headers: await authHeaders(env) });
-  } catch {
-    throw new ApiError(503, 'unavailable', '一時的に処理できませんでした。再度お試しください。');
-  }
+  const res = await firestoreFetch(env, insightUrl(projectId, uid, periodId), { method: 'GET' });
   if (res.status === 404) return null;
   if (!res.ok) throw await mapFirestoreError(res);
 
@@ -325,15 +314,137 @@ export async function saveInsight(env: Env, uid: string, periodId: string, doc: 
     },
   };
 
-  let res: Response;
-  try {
-    res = await fetch(insightUrl(projectId, uid, periodId), {
-      method: 'PATCH',
-      headers: await authHeaders(env),
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new ApiError(503, 'unavailable', '一時的に処理できませんでした。再度お試しください。');
-  }
+  const res = await firestoreFetch(env, insightUrl(projectId, uid, periodId), {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
   if (!res.ok) throw await mapFirestoreError(res);
+}
+
+
+// ==========================================================================
+// アカウント削除（api-contract.md 第6章・data.md 第7章）
+// ==========================================================================
+
+// Firestore REST にはサブツリー一括削除（Admin SDK の recursiveDelete 相当）が無い。
+// ドキュメントを1件ずつ辿ると Firestore への呼び出し回数が日記の件数に比例して増え、
+// Cloudflare Workers の「1リクエストあたりのサブリクエスト数」上限（無料プランで50）に達しうる。
+// そこで collection group クエリ（from[].allDescendants=true）を使い、
+// **コレクション ID ごとに1回の runQuery で任意の深さの子孫をまとめて取得**する。
+// 呼び出し回数はデータ量によらずコレクション ID の数（数回）で一定になる。
+//
+// 取得は `select: ['__name__']`（公式のキーのみ射影）でドキュメント名だけを読み、日記本文は取得しない。
+// 削除は documents:commit（バッチ書込・500件ずつ）。存在しない名前への delete は no-op のため、
+// 途中失敗後の再実行が安全（冪等）。
+
+const COMMIT_BATCH_SIZE = 500; // commit の書込上限。
+
+// users/{uid} 配下に存在しうるコレクション ID（data.md 3.2〜3.5）。
+// `messages` は entries の下の入れ子なので、users/{uid} の直下列挙（listCollectionIds）には現れない。
+// 想定外のコレクションが直下に増えた場合は listCollectionIds 側で検出して削除対象に加える。
+const KNOWN_USER_SUBCOLLECTION_IDS = ['entries', 'messages', 'wordStats', 'insights'] as const;
+
+// ドキュメント直下のサブコレクション ID を列挙する（スキーマ逸脱の検出用）。
+async function listCollectionIds(env: Env, projectId: string, docPath: string): Promise<string[]> {
+  const url = `${documentsBase(projectId)}/${docPath}:listCollectionIds`;
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await firestoreFetch(env, url, {
+      method: 'POST',
+      body: JSON.stringify(pageToken ? { pageToken } : {}),
+    });
+    if (res.status === 404) return ids; // 親ドキュメントが無ければ列挙結果も無い。
+    if (!res.ok) throw await mapFirestoreError(res);
+    const body = (await res.json()) as { collectionIds?: string[]; nextPageToken?: string };
+    ids.push(...(body.collectionIds ?? []));
+    pageToken = body.nextPageToken;
+  } while (pageToken);
+  return ids;
+}
+
+// parentDocPath の子孫のうち、collectionId 名のコレクションに属するドキュメント名を全件取得する。
+// allDescendants=true により、直下でなく入れ子（entries/{id}/messages）でも1回で拾える。
+async function queryDescendantNames(
+  env: Env,
+  projectId: string,
+  parentDocPath: string,
+  collectionId: string,
+): Promise<string[]> {
+  const url = `${documentsBase(projectId)}/${parentDocPath}:runQuery`;
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId, allDescendants: true }],
+      // ドキュメント名のみ返す（本文は読まない）。
+      select: { fields: [{ fieldPath: '__name__' }] },
+    },
+  };
+  const res = await firestoreFetch(env, url, { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw await mapFirestoreError(res);
+
+  const rows = (await res.json()) as { document?: { name?: string } }[];
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => (row.document?.name ? [row.document.name] : []));
+}
+
+// フルリソース名の配列を commit でまとめて削除する（存在しない名前は no-op）。
+async function commitDeletes(env: Env, projectId: string, names: string[]): Promise<void> {
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`;
+  for (let i = 0; i < names.length; i += COMMIT_BATCH_SIZE) {
+    const writes = names.slice(i, i + COMMIT_BATCH_SIZE).map((name) => ({ delete: name }));
+    const res = await firestoreFetch(env, url, { method: 'POST', body: JSON.stringify({ writes }) });
+    if (!res.ok) throw await mapFirestoreError(res);
+  }
+}
+
+// users/{uid} とその配下（entries / messages / wordStats / insights）をすべて削除する。
+// 戻り値は削除対象として送ったドキュメント数（users/{uid} 自身を含む）。
+export async function deleteUserData(env: Env, uid: string): Promise<number> {
+  const projectId = serviceAccountProjectId(env);
+  const userDocPath = `users/${uid}`;
+
+  // 直下の実コレクションを見て、既知スキーマに無いものがあれば削除対象に加える（取りこぼし防止）。
+  const discovered = await listCollectionIds(env, projectId, userDocPath);
+  const unknown = discovered.filter(
+    (id) => !(KNOWN_USER_SUBCOLLECTION_IDS as readonly string[]).includes(id),
+  );
+  if (unknown.length > 0) {
+    console.warn('Unknown subcollections under user document', unknown);
+  }
+  const collectionIds = [...new Set([...KNOWN_USER_SUBCOLLECTION_IDS, ...discovered])];
+
+  const names: string[] = [];
+  for (const collectionId of collectionIds) {
+    names.push(...(await queryDescendantNames(env, projectId, userDocPath, collectionId)));
+  }
+  // 親ドキュメント自身は最後に消す（順序は必須ではないが、途中失敗時に users/{uid} が残る方が再実行しやすい）。
+  names.push(`${documentsBase(projectId)}/${userDocPath}`);
+
+  await commitDeletes(env, projectId, names);
+  return names.length;
+}
+
+// 当該 uid が発行した pairings（トップレベル）をすべて削除する。
+export async function deletePairingsForUid(env: Env, uid: string): Promise<number> {
+  const projectId = serviceAccountProjectId(env);
+  const url = `${documentsBase(projectId)}:runQuery`;
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId: 'pairings' }],
+      where: {
+        fieldFilter: { field: { fieldPath: 'uid' }, op: 'EQUAL', value: { stringValue: uid } },
+      },
+      // ドキュメント名だけ取れればよい（トークン等の中身は読まない）。
+      select: { fields: [{ fieldPath: '__name__' }] },
+    },
+  };
+
+  const res = await firestoreFetch(env, url, { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw await mapFirestoreError(res);
+
+  const rows = (await res.json()) as { document?: { name?: string } }[];
+  if (!Array.isArray(rows)) return 0;
+  const names = rows.flatMap((row) => (row.document?.name ? [row.document.name] : []));
+  await commitDeletes(env, projectId, names);
+  return names.length;
 }
