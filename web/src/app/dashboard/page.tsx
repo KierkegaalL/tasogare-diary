@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
 import type { Insight, InsightType } from '@shared/types/insight';
@@ -74,9 +75,14 @@ export default function DashboardPage() {
           </h1>
           <p style={styles.subtitle}>書いた日記を、そのまま振り返れます（閲覧専用）。</p>
         </div>
-        <button onClick={() => void signOut(getFirebaseAuth())} style={styles.signOut}>
-          サインアウト
-        </button>
+        <div style={styles.headerActions}>
+          <Link href="/entries" style={styles.navLink}>
+            日記の一覧 →
+          </Link>
+          <button onClick={() => void signOut(getFirebaseAuth())} style={styles.signOut}>
+            サインアウト
+          </button>
+        </div>
       </header>
 
       <div className="period-tabs" style={styles.tabs} role="tablist" aria-label="期間">
@@ -167,6 +173,8 @@ const styles: Record<string, CSSProperties> = {
   },
   title: { fontFamily: 'var(--font-display)', fontSize: 24, margin: 0 },
   subtitle: { color: 'var(--ink-soft)', fontSize: 13, margin: '4px 0 0' },
+  headerActions: { flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 },
+  navLink: { fontSize: 13, color: 'var(--dusk-deep)', textDecoration: 'none' },
   signOut: {
     flexShrink: 0,
     padding: '8px 14px',

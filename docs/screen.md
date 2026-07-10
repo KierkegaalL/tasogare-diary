@@ -23,6 +23,7 @@
 | ⑨ | Webで見る（QR） | `webConnect` | モバイル | 3.10 |
 | ⑩ | ダッシュボード | `dashboardView` | Web | 4.1 |
 | ⑪ | デバイスをつなぐ | `connectView` | Web | 4.2 |
+| ⑫ | 日記一覧（Web） | `entriesView` | Web | 4.3 |
 
 ### 0.2 共通コンポーネント
 - **ステータスバー**（`.status-bar`）: 端末標準に置換（モックの `9:41` は不要）。
@@ -163,7 +164,15 @@ graph LR
 - **フロー**: QR トークンを Functions が照合→カスタム認証トークン発行→サインイン（[architecture.md](architecture.md) 第3.4節相当のシーケンス、詳細は api-contract.md）。
 - **状態**: 待機/読取成功/失効・不正トークン（再取得を促す）/成功（ダッシュボードへ）。
 - **A11y**: カメラ不可環境向けに Apple/Google サインインを代替提供。`softPulse` は reduced-motion で停止。
-- **実装メモ（Phase4・一部実装）**: `web/src/app/connect`（コード貼り付けで連携）＋`web/src/app/pair`（モバイル QR ディープリンク `<WEB_URL>/pair?token=…` の着地点）。照合は `verifyPairingToken`→`signInWithCustomToken`（api-contract.md 5.2）。**カメラでの QR ライブ読取・Apple/Google サインイン代替は未実装**（[web/README.md](../web/README.md)）。
+- **実装メモ（Phase4・一部実装）**: `web/src/app/connect`（カメラでの QR ライブ読取＋コード貼り付けで連携。`web/src/components/QrScanner.tsx`、`getUserMedia`＋`jsQR` によるデコード）＋`web/src/app/pair`（モバイル QR ディープリンク `<WEB_URL>/pair?token=…` の着地点）。照合は `verifyPairingToken`→`signInWithCustomToken`（api-contract.md 5.2）。**Apple/Google サインイン代替は未実装**（[web/README.md](../web/README.md)）。
+
+### 4.3 日記一覧（Web）（`entriesView`）
+- **目的**: 書いた日記本文をパソコンでそのまま読み返す（3.10 の約束「パソコンでも、書いた日記をそのまま見られます」を Web で実現）。分析（4.1）と役割分担し、こちらは**本文閲覧**を担う。
+- **要素**: ヘッダー（「日記の一覧」＋ダッシュボードへのリンク）／月ナビ（前の月／月見出し／次の月・今月以降は不可）／エントリカード（`.diary-entry`：日付＋感情チップ／本文 `.diary-full-text`／選択語タグ `.tags-used`／気づき）／注記（Web 限定表示）。
+- **データ**: `entries`（`users/{uid}/entries`、`date` 範囲＝月内・降順、[data.md](data.md) 第3.2節）。**Firestore を直読**（サインイン済み本人のみ read 可能：`firestore.rules`）。まとめ（`insights`）と異なり Worker を介さない。
+- **状態**: 読込中／当月の記録なし（その旨表示）／取得失敗（再試行）／一覧表示。**読取専用（U-09）**：編集導線を持たない。1日1件（U-11）前提で日ごとに縦積み。
+- **A11y**: 感情は色＋ラベルを併記（色のみに依存しない）。
+- **実装メモ（Phase4・実装済み）**: `web/src/app/entries`（`EntryList`＝`.diary-entry`）。取得は `web/src/lib/entries.ts` の `fetchEntriesForMonth`（`date` 文字列の辞書順範囲＋同一フィールド並び替えのため複合インデックス不要）。ダッシュボード（4.1）と相互リンク。**過去の月へは月ナビでさかのぼる**（無限スクロール・検索は後続）。
 
 ---
 
