@@ -65,3 +65,17 @@ export function formatYearMonth(iso: string): string {
   const { y, m } = ymd(iso);
   return `${y}年${m}月`;
 }
+
+// ISO8601 の週キー（`YYYY-Www`）。generateInsight の periodKey に使う（api-contract.md 3.5）。
+// ISO 週は月曜始まりで、週の年はその週の木曜日が属する年で決まる。
+export function isoWeekKey(iso: string = todayISO()): string {
+  const { y, m, d } = ymd(iso);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  const dow = date.getUTCDay() || 7; // 1(月)..7(日)
+  // その週の木曜日へ寄せると、週の年と週番号が一意に決まる。
+  const thursday = new Date(date.getTime() + (4 - dow) * 86400000);
+  const weekYear = thursday.getUTCFullYear();
+  const jan1 = Date.UTC(weekYear, 0, 1);
+  const week = Math.floor((thursday.getTime() - jan1) / (7 * 86400000)) + 1;
+  return `${weekYear}-W${String(week).padStart(2, '0')}`;
+}

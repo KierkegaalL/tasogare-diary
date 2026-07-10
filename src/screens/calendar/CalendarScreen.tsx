@@ -1,14 +1,16 @@
-import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useRootNavigation } from '../../app/navigation/hooks';
 import { useEntriesStore } from '../../stores/entriesStore';
 import { OrbMini } from '../../components/OrbMini';
+import { generateInsight } from '../../services/diaryApi';
+import type { GenerateInsightResponse } from '../../services/diaryApi';
 import type { MoodLevel } from '../../theme';
-import { colors, fonts, moodColor, moodLabel, spacing } from '../../theme';
+import { colors, fonts, moodColor, moodLabel, radius, spacing } from '../../theme';
 import type { DiaryEntry } from '../../types/diary';
-import { formatYearMonth, monthGrid, todayISO, weekdayJa, ymd } from '../../utils/date';
+import { formatYearMonth, isoWeekKey, monthGrid, todayISO, weekdayJa, ymd } from '../../utils/date';
 import { buildMoodByDate } from '../../utils/entries';
 
 const WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日'];
@@ -83,13 +85,79 @@ export function CalendarScreen() {
             ))}
           </View>
 
-          {/* TODO(別Phase): AI週次インサイト（.insight-card / screen.md 3.7）は
-              Claude/Functions 連携（insights コレクション）着手時に実装する。 */}
+          <WeeklyInsightCard hasEntries={entries.length > 0} />
         </ScrollView>
       ) : (
         <ListView entries={entries} query={query} onQuery={setQuery} onOpen={(id) => navigation.navigate('Detail', { entryId: id })} />
       )}
     </SafeAreaView>
+  );
+}
+
+// AI週次インサイト（.insight-card / screen.md 3.7）。
+// 今週分を generateInsight（api-contract.md 3.5）で取得する。サーバ側でキャッシュされるため、
+// 表示のたびに生成が走るわけではない（進行中の週は1時間で作り直し）。
+// 日記が1件も無い期間はサーバが failed-precondition を返す仕様のため、その場合は何も出さない。
+function WeeklyInsightCard({ hasEntries }: { hasEntries: boolean }) {
+  const [insight, setInsight] = useState<GenerateInsightResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // 取得は数秒かかる。応答前にアンマウントされたら setState しない。
+  const mounted = useRef(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setFailed(false);
+    try {
+      const res = await generateInsight({ type: 'weekly', periodKey: isoWeekKey() });
+      if (!mounted.current) return;
+      setInsight(res);
+    } catch {
+      // 「今週まだ日記が無い」「オフライン」等はカードを出さないだけに留める（画面を汚さない）。
+      if (!mounted.current) return;
+      setInsight(null);
+      setFailed(true);
+    } finally {
+      if (mounted.current) setLoading(false);
+    }
+  }, []);
+
+  // 日記が1件も無いうちは呼ばない（確実に failed-precondition になるため）。
+  // effect 本体での同期 setState を避けるため macrotask に逃がす（react-hooks/set-state-in-effect）。
+  useEffect(() => {
+    mounted.current = true;
+    if (!hasEntries) return;
+    const id = setTimeout(() => void load(), 0);
+    return () => clearTimeout(id);
+  }, [hasEntries, load]);
+
+  // アンマウント時のみ false にする（上の effect は hasEntries 変化でも再実行されるため分ける）。
+  useEffect(() => () => { mounted.current = false; }, []);
+
+  if (!hasEntries || failed) return null;
+  if (loading && !insight) {
+    return (
+      <View style={styles.insightCard}>
+        <ActivityIndicator color={colors.dusk} />
+      </View>
+    );
+  }
+  if (!insight) return null;
+
+  return (
+    <View style={styles.insightCard}>
+      <Text style={styles.insightTitle}>今週の傾向</Text>
+      <Text style={styles.insightBody}>{insight.narrative}</Text>
+      {insight.topWords.length > 0 ? (
+        <View style={styles.tagsRow}>
+          {insight.topWords.slice(0, 4).map((w) => (
+            <Text key={w.word} style={styles.tag}>
+              {w.word} {w.count}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -201,6 +269,17 @@ const styles = StyleSheet.create({
   },
   cellDay: { fontFamily: fonts.uiRegular, fontSize: 9, color: colors.inkFaint },
   cellOrb: { position: 'absolute', bottom: 6, right: 8 },
+  insightCard: {
+    marginTop: spacing.xl,
+    padding: spacing.lg,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.paperSoft,
+    gap: spacing.sm,
+  },
+  insightTitle: { fontFamily: fonts.display, fontSize: 12, color: colors.duskDeep },
+  insightBody: { fontFamily: fonts.display, fontSize: 12.5, lineHeight: 20, color: colors.ink },
   legend: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.lg },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendText: { fontFamily: fonts.uiRegular, fontSize: 10, color: colors.inkSoft },

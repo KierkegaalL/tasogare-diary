@@ -142,6 +142,9 @@ async function callGemini(env: GeminiEnv, opts: LlmCallOptions): Promise<GeminiR
 export function createGeminiProvider(env: GeminiEnv): LlmProvider {
   return {
     name: 'gemini',
+    modelFor(purpose) {
+      return resolveModel(env, purpose);
+    },
     async callText(opts) {
       const response = await callGemini(env, opts);
       const text = extractText(response);

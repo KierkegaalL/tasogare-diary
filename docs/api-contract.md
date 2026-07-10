@@ -158,13 +158,15 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 - **初回問いかけ（空対話時）**: 履歴が空の対話を開いた際、その日のエントリ（感情・本文）を文脈に AI の最初の問いかけを生成する。`chat` の特殊系（`message` 省略）または専用の opening 呼び出しとして扱う（クライアントのモックは `chatOpening`）。応答形は `chat` と同じ `{ reply, promptVersion }`。
 
 ### 3.5 `generateInsight` — 週次/月次まとめ
-- **用途**: 期間集計＋まとめ文を生成しキャッシュ（[data.md](data.md) 3.5、[screen.md](screen.md) 3.7/4.1）。**未実装**（別タスク）。
+- **用途**: 期間集計＋まとめ文を生成しキャッシュ（[data.md](data.md) 3.5、[screen.md](screen.md) 3.7/4.1）。**実装済み**（`worker/src/insight.ts`。要認証）。
 - **モデル**: generate（既定 `gemini-3.5-flash`、第1.3節）。
-- **実行主体**: 定期バッチ（日次 or 期間確定時）＋Web 表示時のオンデマンド（案B、[basic-design.md](design/basic-design.md) 4.3）。
+- **実行主体**: 表示時のオンデマンド生成＋キャッシュ（案B、[basic-design.md](design/basic-design.md) 4.3）。**定期バッチによる事前生成は未実装**（全ユーザー列挙が要るため。オンデマンド＋キャッシュで代替。§10 実装状況）。
 - Request:
 ```json
 { "type": "monthly", "periodKey": "2026-07" }
 ```
+  - `type`: `weekly` / `monthly` 以外は `invalid-argument`。
+  - `periodKey`: `weekly` は `YYYY-Www`（ISO8601 週・月曜始まり）、`monthly` は `YYYY-MM`。形式不正、および**その年に存在しない第53週**は `invalid-argument`。
 - Response（`users/{uid}/insights/{periodId}` に保存される内容と同型）:
 ```json
 {
@@ -180,14 +182,20 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
   "schemaVersion": 1
 }
 ```
-- 備考: 集計は Firestore の `entries`/`wordStats` からサーバが算出（クライアントは算出しない）。`weekly` はモバイル⑥にも表示、`monthly` は Web 限定。保存時に Functions が `periodId`（`type_periodKey`、[data.md](data.md) 3.5）と `schemaVersion` を付与する。
+- 備考: 集計は Firestore の `entries` からサーバが算出（クライアントは算出しない）。`weekly` はモバイル⑥にも表示、`monthly` は Web 限定。保存時にサーバが `periodId`（`type_periodKey`、[data.md](data.md) 3.5）と `schemaVersion` を付与する。
+- **`moodDistribution` は百分率**（整数・合計100）。`mood` が null のエントリは母数から除外し、1件も `mood` が無ければ全て 0 を返す。端数は最大剰余法で配分する。
+- **`topWords` は最大10件**。同一エントリ内の重複語は1回として数え、件数降順・同数は語の昇順で安定させる。
+- **キャッシュ**: `users/{uid}/insights/{periodId}` を参照し、**期間が確定していれば永続的に再利用**、それ以外は生成から1時間で作り直す。`generatedAt` が壊れている場合も再生成する。
+  - 確定判定は「`rangeEnd` が UTC の今日より**1日以上前**」（`worker/src/insight.ts` の `PERIOD_CLOSE_GRACE_MS`）。`entries.date` は端末ローカル日付で、Worker 側は UTC しか持たないため、UTC より遅れたタイムゾーンの端末が期間最終日にいる間に確定扱いしてしまわないよう猶予を置く。猶予中は上記1時間 TTL で再生成される。
+- **エラー**: 期間内にエントリが1件も無い場合は `failed-precondition`（LLM は呼ばない）。
+- **プライバシー**: LLM へ渡すのは集計値（`moodDistribution` / `topWords` / `entryCount` / 期間）のみで、**日記本文（`bodyText`）は送らない**。Firestore からの読み出しも `date`/`mood`/`words` のみに射影する（最小送信・最小取得、第8章・[constraints.md](../.claude/rules/constraints.md)）。
 
 ---
 
 ## 4. 書込・保存の扱い
 
 - 日記の**保存はクライアントが Firestore へ直接書込**（`users/{uid}/entries`、[data.md](data.md) 3.2）。生成系 Functions は本文を返すのみで保存しない（責務分離・オフライン保存対応）。
-- 保存後、`wordStats` 更新と `insights` 無効化/再生成は **Functions（Firestore トリガ）** が担う（クライアントは `wordStats`/`insights` を書けない：[data.md](data.md) 第6章）。
+- 保存後の `wordStats` 更新と `insights` 無効化/再生成は当初 **Functions（Firestore トリガ）** を想定していたが、Cloud Functions 不採用（Blaze 回避）のためトリガは存在しない。**実装（Phase4）では `generateInsight` 呼び出し時に `entries` から都度集計し、キャッシュ鮮度（3.5）で再生成を制御する**。`wordStats` は現状どこからも書き込まれない（[data.md](data.md) 3.4）。クライアントが `wordStats`/`insights` を書けない点は不変（[data.md](data.md) 第6章）。
 
 ---
 
@@ -261,7 +269,8 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 - **LLM プロバイダ（2026-07-09 変更）**: 当初 Anthropic（Claude Haiku 4.5 / Sonnet 5）で実装したが、**課金を発生させず無料枠で運用したい**というユーザー方針により **Google Gemini API**（Gemini Developer API・無料枠）へ変更した。API キーは Cloudflare Secret（`GEMINI_API_KEY`）、モデルは環境変数（`GEMINI_MODEL_INTERACTIVE`/`GEMINI_MODEL_GENERATE`）で差し替え。生成系（suggest/generate/adjust）は Gemini の **構造化出力（`responseSchema`/`responseMimeType: application/json`）** で JSON を強制。クライアントは `isClaudeWorkerConfigured`（`EXPO_PUBLIC_CLAUDE_WORKER_URL` の有無）で **モック↔Worker を自動切替**（`src/services/diaryApi.ts`）。
 - **LLM プロバイダ抽象（移管容易化）**: Worker 側の LLM 呼び出しは `worker/src/llm/`（`types.ts`=`LlmProvider` インターフェース／`gemini.ts`=Gemini 実装／`index.ts`=`LLM_PROVIDER` によるセレクタ）に抽象化済み。`worker/src/index.ts` は用途（`purpose: 'interactive'|'generate'`）を指定するのみでモデル ID・プロバイダ固有仕様に依存しない。**将来 Anthropic 等へ移管する場合はプロバイダ実装を1ファイル追加＋セレクタに分岐追加のみ**（詳細は [worker/README.md](../worker/README.md) の「LLM プロバイダ抽象」）。worker のユニットテスト（vitest）は `worker/src/**/__tests__/`。
 - **QRペアリング（実装済み・Phase3）**: `createPairingToken`（要認証。60秒の短命トークンを `pairings` に作成）・`verifyPairingToken`（未サインイン可。照合・消費しカスタムトークンを返す）を Cloudflare Workers で実装（`worker/src/pairing.ts`）。**カスタムトークン発行と Firestore Admin アクセスのため Firebase サービスアカウント秘密鍵（`FIREBASE_SERVICE_ACCOUNT` Secret）を導入**。Firebase Admin SDK は使わず、WebCrypto（RS256）で JWT を自前署名（`worker/src/serviceAccount.ts`）、Firestore REST（Admin アクセストークン）で `pairings` を照合・消費（`worker/src/firestore.ts`）。二重消費は `updateTime` precondition で防止。`firestore.rules` は `pairings` へのクライアント直接アクセスを全面禁止（Admin のみ）。モバイルは `WebConnectScreen` で60秒ごとに QR を再発行（`src/services/pairing.ts`）。**Web 側の照合UI（`verifyPairingToken` 呼び出し・`signInWithCustomToken`）は Web ダッシュボード実装時に対応**。**`WebConnectScreen` の「または＋Apple/Google サインイン」代替導線（[screen.md](screen.md) 3.10）は本 PR では未実装**（恒久アカウント／サインインは別タスク。[environments.md](../.claude/rules/environments.md) の「Apple/Google サインインへの昇格」参照）。`expiresAt` はレスポンスでミリ秒付き ISO8601（`toISOString()`）を返す（5.1 のサンプルはミリ秒省略表記だが、いずれも有効な ISO8601）。
-- **未実装（別タスク）**: `generateInsight`（3.5）・`deleteAccount`（第6章）。これらは集計・アカウント削除を伴うため、着手時に方式を確定する。
+- **週次/月次まとめ（実装済み・Phase4）**: `generateInsight`（3.5）を Cloudflare Workers で実装（`worker/src/insight.ts`）。**表示時オンデマンド生成＋キャッシュ**方式（basic-design.md 4.3 案B の折衷のうち、定期バッチ側は未実装）。集計は Firestore REST（Admin）の `runQuery` で `users/{uid}/entries` を `date` 範囲検索して算出し（`worker/src/firestore.ts` の `queryEntriesByDateRange`、`select` で `date`/`mood`/`words` のみ射影）、結果を `users/{uid}/insights/{periodId}` へ Admin 権限で保存する（`saveInsight`。クライアントは `firestore.rules` により書込不可）。**LLM へ送るのは集計値のみで日記本文は送らない**。`source.model` 記録のため `LlmProvider` に `modelFor(purpose)` を追加した（`worker/src/llm/types.ts`）。**定期バッチ（Cron Triggers）による事前生成は未実装**（全ユーザー列挙が必要で、Workers から `users` コレクション全走査は費用・権限設計の検討が要るため。オンデマンド＋キャッシュで実用上は充足）。`wordStats`（data.md 3.4）は Cloud Functions トリガ前提の集計先で、現状どこからも更新されないため参照していない。
+- **未実装（別タスク）**: `deleteAccount`（第6章）。アカウント削除を伴うため、着手時に方式を確定する。
 - **未対応（将来）**: `chat` のサーバ側文脈補完（当該エントリ本文・過去要約）は現状クライアントの直近履歴のみを送信。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
 
 ### 未確定

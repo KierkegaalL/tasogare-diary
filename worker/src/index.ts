@@ -2,6 +2,7 @@ import { verifyFirebaseIdToken, AuthError } from './auth';
 import { ApiError, getLlmProvider } from './llm';
 import type { LlmHistoryEntry, LlmProvider } from './llm';
 import type { Env } from './env';
+import { handleGenerateInsight } from './insight';
 import { handleCreatePairingToken, handleVerifyPairingToken } from './pairing';
 import {
   PROMPT_VERSION,
@@ -270,6 +271,11 @@ const ROUTES: Record<string, Route> = {
   '/adjustDiary': llmRoute(handleAdjustDiary),
   '/chat': llmRoute(handleChat),
   '/chatOpening': llmRoute(handleChatOpening),
+  // 週次/月次まとめ。LLM と uid（Firestore の集計・キャッシュ）の両方を使う。
+  '/generateInsight': {
+    requireAuth: true,
+    handler: (env, uid, data) => handleGenerateInsight(env, getLlmProvider(env), uid as string, data),
+  },
   // QRペアリング（LLM 非依存）。
   '/createPairingToken': {
     requireAuth: true,
