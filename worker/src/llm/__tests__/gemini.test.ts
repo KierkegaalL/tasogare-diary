@@ -182,4 +182,59 @@ describe('createGeminiProvider', () => {
       createGeminiProvider(ENV).callText({ purpose: 'interactive', system: 's', userText: 'u' }),
     ).rejects.toBeInstanceOf(ApiError);
   });
+
+  describe('Gemini 5xx（過負荷）の再試行', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('503 の後に成功すれば、1回だけ再試行して結果を返す', async () => {
+      fetchMock
+        .mockResolvedValueOnce(errResponse(503, { error: { status: 'UNAVAILABLE' } }))
+        .mockResolvedValueOnce(okResponse(textPayload('復帰した')));
+
+      const promise = createGeminiProvider(ENV).callText({
+        purpose: 'interactive',
+        system: 's',
+        userText: 'u',
+      });
+      await vi.runAllTimersAsync();
+
+      await expect(promise).resolves.toBe('復帰した');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('503 が続く場合は再試行1回で打ち切り、unavailable を返す', async () => {
+      fetchMock.mockResolvedValue(errResponse(503, { error: { status: 'UNAVAILABLE' } }));
+
+      const promise = createGeminiProvider(ENV).callText({
+        purpose: 'interactive',
+        system: 's',
+        userText: 'u',
+      });
+      // rejects の待ち受けはタイマー進行前に張る（unhandled rejection を防ぐ）。
+      const assertion = expect(promise).rejects.toMatchObject({ code: 'unavailable', status: 503 });
+      await vi.runAllTimersAsync();
+      await assertion;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('429（レート制限）は再試行しない', async () => {
+      fetchMock.mockResolvedValue(errResponse(429));
+
+      const promise = createGeminiProvider(ENV).callText({
+        purpose: 'interactive',
+        system: 's',
+        userText: 'u',
+      });
+      const assertion = expect(promise).rejects.toMatchObject({ code: 'resource-exhausted', status: 429 });
+      await vi.runAllTimersAsync();
+      await assertion;
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
 });

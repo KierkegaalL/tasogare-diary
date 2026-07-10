@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useRootNavigation } from '../../app/navigation/hooks';
 import { useEntriesStore } from '../../stores/entriesStore';
+import { useDraftStore } from '../../stores/draftStore';
 import { Orb } from '../../components/Orb';
 import { OrbMini } from '../../components/OrbMini';
 import { EntryCard } from '../../components/EntryCard';
@@ -17,6 +18,7 @@ export function HomeScreen() {
   const navigation = useRootNavigation();
   const entries = useEntriesStore((s) => s.entries);
   const hasHydrated = useEntriesStore((s) => s.hasHydrated);
+  const draftHasHydrated = useDraftStore((s) => s.hasHydrated);
 
   const moodByDate = buildMoodByDate(entries);
   const weekDates = weekDatesMonday(todayISO());
@@ -45,7 +47,14 @@ export function HomeScreen() {
           <Text style={styles.line1}>今日の気持ちを、少しだけ</Text>
           <Text style={styles.line2}>言葉を選ぶだけで、日記になります</Text>
           <View style={styles.cta}>
-            <PrimaryButton label="日記を書く" onPress={() => navigation.navigate('DiaryFlow', { screen: 'Mood' })} />
+            <PrimaryButton
+              label="日記を書く"
+              // draftStore の rehydrate 完了前に入力すると、後から届く永続化済みスナップショットで
+              // zustand persist のデフォルトマージが上書きし、選択した気持ち/できごとが消える
+              // （生成に使う語が0件になり /generateDiary が空振りする）。完了までは開始させない。
+              disabled={!draftHasHydrated}
+              onPress={() => navigation.navigate('DiaryFlow', { screen: 'Mood' })}
+            />
           </View>
         </View>
 

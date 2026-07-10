@@ -241,7 +241,8 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 ## 7. レート制限・リトライ・タイムアウト
 
 - **クライアント再試行**: `unavailable`/`deadline-exceeded`/`resource-exhausted` のみ指数バックオフで数回。入力・下書きは保持。
-- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウトを設定。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm/gemini.ts`）。
+- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウト（25秒/試行）を設定。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm/gemini.ts`）。
+- **サーバ側リトライ**: Gemini の 5xx（過負荷。生ステータスに関わらず `unavailable`/503 に正規化される）は初回失敗時に600ms待って**1回だけ**自動リトライする（合計最大2試行）。429（レート制限）・400/401/403、およびクライアント側タイムアウト（`AbortController` 由来の `deadline-exceeded`/504・ネットワーク断）はリトライ対象外（待っても状況が変わりにくいため）。**理論上の最大待ち時間**は 1試行あたりのタイムアウト25秒×合計2試行＋リトライ待機0.6秒 ≒ 50.6秒（実運用では5xx応答自体は速いため通常はここまで伸びない）。
 - **多重防止**: 保存・削除・ペアリング消費はサーバ側で状態（`consumed` 等）を検証し二重実行を防ぐ。
 
 ---
