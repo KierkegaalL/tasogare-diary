@@ -195,6 +195,8 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 
 短命トークン方式（[architecture.md](architecture.md) 3.4、[data.md](data.md) 3.6）。
 
+> **実装メモ（Phase3・実装済み）**: 本節は Callable/Functions 前提の記法だが、実装は Cloudflare Workers（`worker/src/pairing.ts`）。`context.auth` は Worker の ID トークン検証で得た uid に、カスタムトークン発行・Firestore Admin アクセスは Firebase サービスアカウント秘密鍵（`FIREBASE_SERVICE_ACCOUNT`）を用いた WebCrypto 署名・Firestore REST に読み替える（§10 実装状況、[worker/README.md](../worker/README.md)）。エラー応答は `{ error: { code, message } }` + HTTP ステータス。
+
 ### 5.1 `createPairingToken` — 発行（モバイル、要認証）
 - Request: `{}`（uid は `context.auth`）。
 - Response:
@@ -258,7 +260,8 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 - **実装済み（Cloudflare Workers / `worker/`）**: `suggestWords`・`generateDiary`・`adjustDiary`・`chat`・`chatOpening`。**Firebase Blaze プラン回避のため Firebase Functions ではなく Cloudflare Workers を採用**（Firebase は Spark プランのまま。[environments.md](../.claude/rules/environments.md)／[worker/README.md](../worker/README.md)）。認証は Firebase ID トークン（`Authorization: Bearer`）を Worker 側が `jose` で検証（Firebase Admin SDK 不使用）。
 - **LLM プロバイダ（2026-07-09 変更）**: 当初 Anthropic（Claude Haiku 4.5 / Sonnet 5）で実装したが、**課金を発生させず無料枠で運用したい**というユーザー方針により **Google Gemini API**（Gemini Developer API・無料枠）へ変更した。API キーは Cloudflare Secret（`GEMINI_API_KEY`）、モデルは環境変数（`GEMINI_MODEL_INTERACTIVE`/`GEMINI_MODEL_GENERATE`）で差し替え。生成系（suggest/generate/adjust）は Gemini の **構造化出力（`responseSchema`/`responseMimeType: application/json`）** で JSON を強制。クライアントは `isClaudeWorkerConfigured`（`EXPO_PUBLIC_CLAUDE_WORKER_URL` の有無）で **モック↔Worker を自動切替**（`src/services/diaryApi.ts`）。
 - **LLM プロバイダ抽象（移管容易化）**: Worker 側の LLM 呼び出しは `worker/src/llm/`（`types.ts`=`LlmProvider` インターフェース／`gemini.ts`=Gemini 実装／`index.ts`=`LLM_PROVIDER` によるセレクタ）に抽象化済み。`worker/src/index.ts` は用途（`purpose: 'interactive'|'generate'`）を指定するのみでモデル ID・プロバイダ固有仕様に依存しない。**将来 Anthropic 等へ移管する場合はプロバイダ実装を1ファイル追加＋セレクタに分岐追加のみ**（詳細は [worker/README.md](../worker/README.md) の「LLM プロバイダ抽象」）。worker のユニットテスト（vitest）は `worker/src/**/__tests__/`。
-- **未実装（別タスク）**: `generateInsight`（3.5）・`createPairingToken`/`verifyPairingToken`（第5章）・`deleteAccount`（第6章）。これらは書込・集計・アカウント削除を伴うため、Cloudflare Workers か他手段（Firestore セキュリティルールでの直接制御等）かは着手時に改めて検討する。
+- **QRペアリング（実装済み・Phase3）**: `createPairingToken`（要認証。60秒の短命トークンを `pairings` に作成）・`verifyPairingToken`（未サインイン可。照合・消費しカスタムトークンを返す）を Cloudflare Workers で実装（`worker/src/pairing.ts`）。**カスタムトークン発行と Firestore Admin アクセスのため Firebase サービスアカウント秘密鍵（`FIREBASE_SERVICE_ACCOUNT` Secret）を導入**。Firebase Admin SDK は使わず、WebCrypto（RS256）で JWT を自前署名（`worker/src/serviceAccount.ts`）、Firestore REST（Admin アクセストークン）で `pairings` を照合・消費（`worker/src/firestore.ts`）。二重消費は `updateTime` precondition で防止。`firestore.rules` は `pairings` へのクライアント直接アクセスを全面禁止（Admin のみ）。モバイルは `WebConnectScreen` で60秒ごとに QR を再発行（`src/services/pairing.ts`）。**Web 側の照合UI（`verifyPairingToken` 呼び出し・`signInWithCustomToken`）は Web ダッシュボード実装時に対応**。**`WebConnectScreen` の「または＋Apple/Google サインイン」代替導線（[screen.md](screen.md) 3.10）は本 PR では未実装**（恒久アカウント／サインインは別タスク。[environments.md](../.claude/rules/environments.md) の「Apple/Google サインインへの昇格」参照）。`expiresAt` はレスポンスでミリ秒付き ISO8601（`toISOString()`）を返す（5.1 のサンプルはミリ秒省略表記だが、いずれも有効な ISO8601）。
+- **未実装（別タスク）**: `generateInsight`（3.5）・`deleteAccount`（第6章）。これらは集計・アカウント削除を伴うため、着手時に方式を確定する。
 - **未対応（将来）**: `chat` のサーバ側文脈補完（当該エントリ本文・過去要約）は現状クライアントの直近履歴のみを送信。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
 
 ### 未確定

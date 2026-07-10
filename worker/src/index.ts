@@ -2,6 +2,7 @@ import { verifyFirebaseIdToken, AuthError } from './auth';
 import { ApiError, getLlmProvider } from './llm';
 import type { LlmHistoryEntry, LlmProvider } from './llm';
 import type { Env } from './env';
+import { handleCreatePairingToken, handleVerifyPairingToken } from './pairing';
 import {
   PROMPT_VERSION,
   SYSTEM_ADJUST_DIARY,
@@ -249,12 +250,36 @@ async function handleChatOpening(llm: LlmProvider, data: Record<string, unknown>
   return { reply, promptVersion: PROMPT_VERSION.chatOpening };
 }
 
-const ROUTES: Record<string, (llm: LlmProvider, data: Record<string, unknown>) => Promise<unknown>> = {
-  '/suggestWords': handleSuggestWords,
-  '/generateDiary': handleGenerateDiary,
-  '/adjustDiary': handleAdjustDiary,
-  '/chat': handleChat,
-  '/chatOpening': handleChatOpening,
+// ルート定義。requireAuth=true は Firebase ID トークン検証で uid を確立する。
+// uid は認証済みルートでのみ非 null（verifyPairingToken は未サインイン可のため null）。
+interface Route {
+  requireAuth: boolean;
+  handler: (env: Env, uid: string | null, data: Record<string, unknown>) => Promise<unknown>;
+}
+
+// LLM ルートは env からプロバイダを解決して既存ハンドラへ委譲する。
+function llmRoute(
+  handler: (llm: LlmProvider, data: Record<string, unknown>) => Promise<unknown>,
+): Route {
+  return { requireAuth: true, handler: (env, _uid, data) => handler(getLlmProvider(env), data) };
+}
+
+const ROUTES: Record<string, Route> = {
+  '/suggestWords': llmRoute(handleSuggestWords),
+  '/generateDiary': llmRoute(handleGenerateDiary),
+  '/adjustDiary': llmRoute(handleAdjustDiary),
+  '/chat': llmRoute(handleChat),
+  '/chatOpening': llmRoute(handleChatOpening),
+  // QRペアリング（LLM 非依存）。
+  '/createPairingToken': {
+    requireAuth: true,
+    // requireAuth=true のため uid は非 null（下の fetch で保証）。
+    handler: (env, uid, _data) => handleCreatePairingToken(env, uid as string),
+  },
+  '/verifyPairingToken': {
+    requireAuth: false, // Web 初回は未サインインで照合する（api-contract 5.2）。
+    handler: (env, _uid, data) => handleVerifyPairingToken(env, data),
+  },
 };
 
 export default {
@@ -264,8 +289,8 @@ export default {
     }
 
     const url = new URL(request.url);
-    const handler = ROUTES[url.pathname];
-    if (!handler) {
+    const route = ROUTES[url.pathname];
+    if (!route) {
       return json({ error: { code: 'internal', message: 'not found' } }, 404);
     }
     if (request.method !== 'POST') {
@@ -273,8 +298,10 @@ export default {
     }
 
     try {
-      const uid = await verifyFirebaseIdToken(request.headers.get('Authorization'), env.FIREBASE_PROJECT_ID);
-      void uid; // 現段階は認証（uid 確立）のみ利用。将来 wordStats 等の uid スコープ処理に使う。
+      let uid: string | null = null;
+      if (route.requireAuth) {
+        uid = await verifyFirebaseIdToken(request.headers.get('Authorization'), env.FIREBASE_PROJECT_ID);
+      }
 
       let data: Record<string, unknown>;
       try {
@@ -283,8 +310,7 @@ export default {
         throw new ApiError(400, 'invalid-argument', 'リクエスト本文が不正な JSON です。');
       }
 
-      const llm = getLlmProvider(env);
-      const result = await handler(llm, data);
+      const result = await route.handler(env, uid, data);
       return json(result);
     } catch (err) {
       return errorResponse(err);
