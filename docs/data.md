@@ -166,7 +166,7 @@ QRペアリングの短命トークン（[architecture.md](architecture.md)／ap
 | `expiresAt` | timestamp | ✓ | 失効（発行＋60秒。`.qr-timer-label` に一致） |
 | `consumed` | bool | ✓ | 一度きり消費フラグ（既定 false） |
 
-> **TTL**: `expiresAt` に Firestore TTL ポリシーを設定し失効ドキュメントを自動削除。照合は Functions が `expiresAt > now` かつ `consumed == false` を検証し、成功時に `consumed = true`。
+> **TTL（実装済み・Phase3 での判断）**: Firestore の TTL ポリシー設定（`gcloud firestore fields ttls update`）は Blaze プラン（課金アカウント紐付け）必須の GCP Admin API 操作のため、**Spark プラン維持方針（environments.md）を優先し設定しない**と判断。失効ドキュメントの自動削除は行わず、`pairings` コレクションに使用済み・失効済みドキュメントが残り続ける（無料枠のストレージ上限に達するまでは実害なし）。失効判定自体は TTL に依存せず、`worker/src/pairing.ts` の `handleVerifyPairingToken` がアプリ側で `expiresAt`（timestamp）と `consumed` を検証し、成功時に `consumed = true` へ更新する（`worker/src/firestore.ts` の `consumePairing`、`updateTime` precondition で二重消費防止）。将来 Blaze へ移行する場合、または別途クリーンアップ手段（定期バッチ等）を導入する場合に TTL 設定を再検討する。
 
 ---
 

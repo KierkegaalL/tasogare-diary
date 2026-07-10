@@ -30,7 +30,8 @@ service cloud.firestore {
 
     // ペアリング: 発行・照合・消費はすべて Worker（Admin=サービスアカウント）が行う（api-contract 第5章）。
     // Admin アクセスはルール適用外のため、クライアントからの直接アクセスは全面禁止でよい。
-    // 失効ドキュメントは expiresAt に Firestore TTL ポリシーを設定して自動削除する（data.md 3.6）。
+    // TTL ポリシー設定は Blaze プラン必須のため未設定（Spark 維持方針。data.md 3.6）。
+    // 失効判定はアプリ側（handleVerifyPairingToken）が expiresAt/consumed を検証する。
     match /pairings/{token} {
       allow read, write: if false;
     }
