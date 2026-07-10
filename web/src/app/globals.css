@@ -1,0 +1,56 @@
+/*
+ * デザイントークン（visual-design.html v1 の :root を正・shared/theme/tokens.ts と一致）。
+ * architecture.md 第5.1/6章。色のハードコード禁止・本変数を参照する。
+ */
+:root {
+  --paper: #f1efee;
+  --paper-soft: #fbfaf8;
+  --ink: #302e3a;
+  --ink-soft: #726f7c;
+  --ink-faint: #aca9b2;
+  --dusk: #8c6f8c;
+  --dusk-deep: #6f5670;
+  --dusk-soft: #efe7ee;
+  --calm: #7fa48f;
+  --calm-soft: #e6ede8;
+  --tender: #c0975a;
+  --tender-soft: #f2e9d8;
+  --heavy: #b27e7e;
+  --heavy-soft: #f1e2e1;
+  --line: #e5e1dd;
+
+  --radius-card: 14px;
+  --radius-pill: 20px;
+  --shadow-card: 0 2px 12px rgba(48, 46, 58, 0.06);
+
+  --font-ui:
+    'Zen Maru Gothic', -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+  --font-display: 'Klee One', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}

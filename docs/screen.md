@@ -155,6 +155,7 @@ graph LR
 - **データ**: `insights`（`monthly` 主、`moodDistribution`/`topWords`/`narrative`）、`wordStats`（[data.md](data.md) 第3.4/3.5節）。生成は Functions（案B）。
 - **状態**: 生成前＝プレースホルダ。データ不足（記録少）＝その旨を表示。読取専用（編集可否 U-09）。
 - **A11y**: グラフに数値/凡例を併記、色のみに依存しない。
+- **実装メモ（Phase4・実装済み）**: `web/src/app/dashboard`。まとめは Worker の `generateInsight`（本文を LLM へ送らない）から取得。期間タブは**今週/今月**を実装（`.mood-chart`＝`MoodChart`／`.word-rank`＝`WordRank`／`.dash-narrative`＝AIまとめ）。**感情推移カードは現状「期間全体の百分率」を1本の積み上げバーで表示**（`generateInsight` が返す `moodDistribution` は期間集計値のため、カード見出しは「感情の推移」とし「（週ごと）」の週別積み上げは後続）。**「過去3ヶ月」タブは未実装**（`generateInsight` が単一期間のみ対応。[web/README.md](../web/README.md)）。エントリ皆無（`failed-precondition`）は「記録がまだありません」を表示。
 
 ### 4.2 デバイスをつなぐ（Web）（`connectView`）
 - **目的**: モバイルの QR を PC カメラで読み取り、Web をサインインさせる。
@@ -162,6 +163,7 @@ graph LR
 - **フロー**: QR トークンを Functions が照合→カスタム認証トークン発行→サインイン（[architecture.md](architecture.md) 第3.4節相当のシーケンス、詳細は api-contract.md）。
 - **状態**: 待機/読取成功/失効・不正トークン（再取得を促す）/成功（ダッシュボードへ）。
 - **A11y**: カメラ不可環境向けに Apple/Google サインインを代替提供。`softPulse` は reduced-motion で停止。
+- **実装メモ（Phase4・一部実装）**: `web/src/app/connect`（コード貼り付けで連携）＋`web/src/app/pair`（モバイル QR ディープリンク `<WEB_URL>/pair?token=…` の着地点）。照合は `verifyPairingToken`→`signInWithCustomToken`（api-contract.md 5.2）。**カメラでの QR ライブ読取・Apple/Google サインイン代替は未実装**（[web/README.md](../web/README.md)）。
 
 ---
 
