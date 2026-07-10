@@ -64,6 +64,30 @@ export interface ChatResponse {
   promptVersion: string;
 }
 
+// ---- 型（api-contract.md 3.5 generateInsight）----
+export type InsightType = 'weekly' | 'monthly';
+export interface GenerateInsightRequest {
+  type: InsightType;
+  periodKey: string; // weekly: `YYYY-Www` / monthly: `YYYY-MM`
+}
+export interface InsightTopWord {
+  word: string;
+  count: number;
+}
+// レスポンスは users/{uid}/insights/{periodId} の保存内容と同型（data.md 3.5）。
+export interface GenerateInsightResponse {
+  type: InsightType;
+  periodKey: string;
+  rangeStart: string;
+  rangeEnd: string;
+  moodDistribution: Record<MoodLevel, number>; // 百分率（整数・合計100）
+  topWords: InsightTopWord[];
+  narrative: string;
+  generatedAt: string;
+  source?: { model: string };
+  schemaVersion: number;
+}
+
 // Worker 実装は設定時のみ読み込む（未設定時は fetch 経路をバンドル/実行しない）。
 function workerApi(): typeof import('./diaryApi.functions') {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -92,6 +116,10 @@ export function chatOpening(ctx: {
   bodyText: string;
 }): Promise<ChatResponse> {
   return isClaudeWorkerConfigured ? workerApi().chatOpening(ctx) : mockApi.chatOpening(ctx);
+}
+
+export function generateInsight(req: GenerateInsightRequest): Promise<GenerateInsightResponse> {
+  return isClaudeWorkerConfigured ? workerApi().generateInsight(req) : mockApi.generateInsight(req);
 }
 
 // 型の再エクスポート（呼び出し側の利便のため）。

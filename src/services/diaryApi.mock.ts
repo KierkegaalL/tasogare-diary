@@ -6,6 +6,8 @@ import type {
   DiaryWord,
   GenerateDiaryRequest,
   GenerateDiaryResponse,
+  GenerateInsightRequest,
+  GenerateInsightResponse,
   SuggestWordsRequest,
   SuggestWordsResponse,
   WordSuggestion,
@@ -140,5 +142,48 @@ export async function chatOpening(ctx: {
   return {
     reply: `${moodPart}この日のこと、よかったら聞かせてください。今はどんな気持ちですか？`,
     promptVersion: 'chat-opening-v1-mock',
+  };
+}
+
+const DAY_MS = 86400000;
+const toDateString = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+// モックの periodKey → 集計期間。実際の集計は Worker 側（worker/src/insight.ts）が行う。
+function mockPeriodRange(req: GenerateInsightRequest): { rangeStart: string; rangeEnd: string } {
+  if (req.type === 'monthly') {
+    const [y, m] = req.periodKey.split('-');
+    const lastDay = new Date(Date.UTC(Number(y), Number(m), 0)).getUTCDate();
+    return { rangeStart: `${req.periodKey}-01`, rangeEnd: `${req.periodKey}-${String(lastDay).padStart(2, '0')}` };
+  }
+  const [y, w] = req.periodKey.split('-W');
+  const jan4 = Date.UTC(Number(y), 0, 4);
+  const week1Monday = jan4 - ((new Date(jan4).getUTCDay() || 7) - 1) * DAY_MS;
+  const monday = week1Monday + (Number(w) - 1) * 7 * DAY_MS;
+  return { rangeStart: toDateString(monday), rangeEnd: toDateString(monday + 6 * DAY_MS) };
+}
+
+// モック: 週次/月次まとめ。集計は行わず固定の傾向を返す（Worker 未設定時の見た目確認用）。
+// 実サーバは entries を集計し、期間内にエントリが無ければ failed-precondition を返す。
+export async function generateInsight(req: GenerateInsightRequest): Promise<GenerateInsightResponse> {
+  await delay(600);
+  const { rangeStart, rangeEnd } = mockPeriodRange(req);
+  return {
+    type: req.type,
+    periodKey: req.periodKey,
+    rangeStart,
+    rangeEnd,
+    moodDistribution: { calm: 45, tender: 35, heavy: 20 },
+    topWords: [
+      { word: '疲れた', count: 4 },
+      { word: 'コーヒー', count: 3 },
+      { word: '雨', count: 2 },
+    ],
+    narrative:
+      'この期間は、穏やかな時間と少し疲れた時間が行き来していたようです。' +
+      '「疲れた」という言葉が何度か顔を出しながらも、コーヒーの時間がそっと一息を作ってくれていました。' +
+      'よく歩いた日々でしたね。',
+    generatedAt: new Date().toISOString(),
+    source: { model: 'mock' },
+    schemaVersion: 1,
   };
 }

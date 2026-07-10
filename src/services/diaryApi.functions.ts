@@ -5,6 +5,8 @@ import type {
   ChatResponse,
   GenerateDiaryRequest,
   GenerateDiaryResponse,
+  GenerateInsightRequest,
+  GenerateInsightResponse,
   SuggestWordsRequest,
   SuggestWordsResponse,
 } from './diaryApi';
@@ -41,4 +43,8 @@ export async function chatOpening(ctx: {
     '/chatOpening',
     ctx,
   );
+}
+
+export async function generateInsight(req: GenerateInsightRequest): Promise<GenerateInsightResponse> {
+  return callClaudeWorker<GenerateInsightRequest, GenerateInsightResponse>('/generateInsight', req);
 }

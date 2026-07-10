@@ -52,6 +52,8 @@ export interface LlmCallOptions {
 // LLM プロバイダの共通インターフェース。差し替え時はこのインターフェースを満たす実装を追加する。
 export interface LlmProvider {
   readonly name: string;
+  // 用途に対して実際に使うモデル ID。生成物のメタ情報（insights.source.model、data.md 3.5）に記録する。
+  modelFor(purpose: LlmPurpose): string;
   // テキスト応答を返す（chat / chatOpening 用）。
   callText(opts: LlmCallOptions): Promise<string>;
   // 構造化 JSON 応答をパースして返す（suggestWords / generateDiary / adjustDiary 用）。

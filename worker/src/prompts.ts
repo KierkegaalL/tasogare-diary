@@ -43,6 +43,15 @@ export const SYSTEM_CHAT_OPENING =
   'その日のエントリ（感情と本文）をふまえ、対話の最初の問いかけを1〜2文で生成します。' +
   'そっと気持ちに触れ、話しやすいやわらかな問いかけにしてください。断定や決めつけはしません。';
 
+// 3.5 generateInsight（週次/月次まとめ / generate）
+// 渡すのは集計値（感情割合・頻出語）のみで、日記本文は一切送らない（最小送信、api-contract.md 第8章）。
+export const SYSTEM_GENERATE_INSIGHT =
+  BASE_PERSONA +
+  '一定期間（週次/月次）の記録の集計をもとに、その期間をふりかえるまとめ文を書きます。' +
+  '受け取るのは感情の割合とよく使われた言葉の集計のみで、日記本文そのものは渡されません。' +
+  '割合の数値をそのまま読み上げず、傾向をやわらかい言葉で描写します。3〜4文程度。' +
+  '断定・診断・評価をせず、ユーザーが自分の歩みをそっと確かめられる語り口にしてください。';
+
 // promptVersion（テレメトリ/追跡用。api-contract.md 3.x のレスポンスに含める）。
 export const PROMPT_VERSION = {
   suggestWords: 'words-v1',
@@ -50,4 +59,5 @@ export const PROMPT_VERSION = {
   adjustDiary: 'adjust-v1',
   chat: 'chat-v1',
   chatOpening: 'chat-opening-v1',
+  generateInsight: 'insight-v1',
 } as const;
