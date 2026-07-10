@@ -54,7 +54,7 @@ firebase deploy --only hosting --project prod
 
 ## 未対応（後続タスク）
 
-- **カメラでの QR ライブ読取**（`/connect`）: 現状は QR の内容（URL／コード）を貼り付けて連携する。カメラ読取は QR デコードライブラリ導入時に追加する。
+- ~~**カメラでの QR ライブ読取**（`/connect`）~~: 実装済み（`web/src/components/QrScanner.tsx`。`getUserMedia`＋[`jsQR`](https://github.com/cozmo/jsQR) でデコード）。非対応ブラウザ・許可拒否時は従来の「コード（URL）を貼り付ける」導線にフォールバックする。
 - **Apple/Google サインイン**（QR が使えない環境の代替。[screen.md](../docs/screen.md) 4.2）: 恒久アカウント昇格タスクと合わせて対応（[environments.md](../.claude/rules/environments.md)）。
 - ~~**日記本文の閲覧**（Firestore 直接読取）~~: 実装済み（`/entries`・[screen.md](../docs/screen.md) 4.3）。**検索・無限スクロール**（月ナビではなく通し閲覧）は後続。
 - **「過去3ヶ月」タブ**（[screen.md](../docs/screen.md) 4.1）: `generateInsight` が単一期間（weekly/monthly）のみ対応のため未実装。複数月集計の対応後に追加する。
