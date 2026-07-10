@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetServiceAccountCaches,
   getFirestoreAccessToken,
+  getIdentityToolkitAccessToken,
   mintCustomToken,
   serviceAccountProjectId,
 } from '../serviceAccount';
@@ -121,6 +122,41 @@ describe('getFirestoreAccessToken', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({}) }));
 
     await expect(getFirestoreAccessToken(env)).rejects.toMatchObject({ code: 'internal' });
+  });
+});
+
+describe('getIdentityToolkitAccessToken', () => {
+  // Firestore と Identity Toolkit ではスコープが異なるため、トークンは別々に取得・キャッシュする。
+  it('datastore とは別スコープで取得し、スコープごとにキャッシュする', async () => {
+    const { env } = await makeServiceAccountEnv();
+    let issued = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: `token-${++issued}`, expires_in: 3600 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const firestore1 = await getFirestoreAccessToken(env);
+    const identity1 = await getIdentityToolkitAccessToken(env);
+    const firestore2 = await getFirestoreAccessToken(env);
+    const identity2 = await getIdentityToolkitAccessToken(env);
+
+    // スコープごとに1回ずつ取得し、以降はそれぞれのキャッシュから返す。
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(firestore1).toBe(firestore2);
+    expect(identity1).toBe(identity2);
+    expect(firestore1).not.toBe(identity1);
+
+    const scopes = fetchMock.mock.calls.map(([, init]) => {
+      const assertion = ((init as RequestInit).body as URLSearchParams).get('assertion') as string;
+      const payload = assertion.split('.')[1] as string;
+      return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))).scope as string;
+    });
+    expect(scopes).toEqual([
+      'https://www.googleapis.com/auth/datastore',
+      'https://www.googleapis.com/auth/identitytoolkit',
+    ]);
   });
 });
 

@@ -2,6 +2,7 @@ import { verifyFirebaseIdToken, AuthError } from './auth';
 import { ApiError, getLlmProvider } from './llm';
 import type { LlmHistoryEntry, LlmProvider } from './llm';
 import type { Env } from './env';
+import { handleDeleteAccount } from './account';
 import { handleGenerateInsight } from './insight';
 import { handleCreatePairingToken, handleVerifyPairingToken } from './pairing';
 import {
@@ -285,6 +286,11 @@ const ROUTES: Record<string, Route> = {
   '/verifyPairingToken': {
     requireAuth: false, // Web 初回は未サインインで照合する（api-contract 5.2）。
     handler: (env, _uid, data) => handleVerifyPairingToken(env, data),
+  },
+  // アカウント削除（api-contract 第6章）。本人の ID トークンで uid を確定してから消す。
+  '/deleteAccount': {
+    requireAuth: true,
+    handler: (env, uid, _data) => handleDeleteAccount(env, uid as string),
   },
 };
 
