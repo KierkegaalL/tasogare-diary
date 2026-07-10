@@ -37,3 +37,33 @@ export const PERIOD_LABELS: Record<InsightType, string> = {
   weekly: '今週',
   monthly: '今月',
 };
+
+// --- 日記一覧（月ブラウズ）用ヘルパー（screen.md 4.x・「書いた日記をそのまま見られる」3.10）---
+
+// 現在の月キー（YYYY-MM）。
+export function currentMonthKey(now: Date = new Date()): string {
+  return monthlyKey(now);
+}
+
+// 月キーを delta ヶ月ずらす（前月=-1／翌月=+1）。
+export function shiftMonthKey(monthKey: string, delta: number): string {
+  const [y, m] = monthKey.split('-');
+  const base = new Date(Number(y ?? '0'), Number(m ?? '1') - 1 + delta, 1);
+  return monthlyKey(base);
+}
+
+// 月見出し（例: 2026年7月）。
+export function formatMonthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split('-');
+  return `${y ?? ''}年${Number(m ?? '0')}月`;
+}
+
+const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const;
+
+// エントリ日付の表示（例: 7月9日（水））。date は YYYY-MM-DD。
+export function formatEntryDate(date: string): string {
+  const [y, m, d] = date.split('-');
+  const dt = new Date(Number(y ?? '0'), Number(m ?? '1') - 1, Number(d ?? '1'));
+  const wd = WEEKDAY_JA[dt.getDay()] ?? '';
+  return `${Number(m ?? '0')}月${Number(d ?? '0')}日（${wd}）`;
+}

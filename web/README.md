@@ -7,7 +7,7 @@ PC で日記を振り返るための **閲覧専用**ダッシュボード（[U-
 ## 構成
 
 - **認証**: Firebase Auth（モバイルと同一プロジェクト）。初回サインインは**モバイルの QR ペアリング**で行う。モバイルが表示する QR（`<WEB_URL>/pair?token=…` のディープリンク）から Worker の `verifyPairingToken` を呼び、返ったカスタムトークンで `signInWithCustomToken` する（[api-contract.md](../docs/api-contract.md) 5.2）。
-- **データ取得**: 週次/月次まとめ（`insights`）は Worker の `generateInsight` から取得。Worker が `entries` を集計・文章化してキャッシュを返す（**日記本文は LLM へ送らない**）。Firestore を直接読むのは将来の日記閲覧（別タスク）で追加する。
+- **データ取得**: 週次/月次まとめ（`insights`）は Worker の `generateInsight` から取得。Worker が `entries` を集計・文章化してキャッシュを返す（**日記本文は LLM へ送らない**）。一方、日記本文の閲覧（`/entries`）は **Firestore を直読**する（`entries` は uid スコープで本人のみ read 可能：`firestore.rules`）。本文はまとめ用途では外へ出さず、閲覧はクライアントが本人の権限で直接取得する。
 - **配色・型**: `../shared`（`shared/theme/tokens.ts`・`shared/types/*`）をモバイルと共有する（`@shared/*` エイリアス）。
 
 ## ルート
@@ -18,6 +18,7 @@ PC で日記を振り返るための **閲覧専用**ダッシュボード（[U-
 | `/connect` | デバイスをつなぐ（QR の内容を貼り付けて連携） | 4.2 |
 | `/pair?token=…` | モバイル QR ディープリンクの着地点（照合→サインイン） | 4.2 |
 | `/dashboard` | 振り返りダッシュボード（感情推移・よく使う言葉・AIまとめ） | 4.1 |
+| `/entries` | 日記の一覧（月ごとに本文をそのまま閲覧・Firestore 直読） | 4.3 |
 
 ## 環境変数
 
@@ -40,6 +41,6 @@ PC で日記を振り返るための **閲覧専用**ダッシュボード（[U-
 
 - **カメラでの QR ライブ読取**（`/connect`）: 現状は QR の内容（URL／コード）を貼り付けて連携する。カメラ読取は QR デコードライブラリ導入時に追加する。
 - **Apple/Google サインイン**（QR が使えない環境の代替。[screen.md](../docs/screen.md) 4.2）: 恒久アカウント昇格タスクと合わせて対応（[environments.md](../.claude/rules/environments.md)）。
-- **日記本文の閲覧**（Firestore 直接読取）: まとめ表示に続く別タスク。
+- ~~**日記本文の閲覧**（Firestore 直接読取）~~: 実装済み（`/entries`・[screen.md](../docs/screen.md) 4.3）。**検索・無限スクロール**（月ナビではなく通し閲覧）は後続。
 - **「過去3ヶ月」タブ**（[screen.md](../docs/screen.md) 4.1）: `generateInsight` が単一期間（weekly/monthly）のみ対応のため未実装。複数月集計の対応後に追加する。
 - **Firebase Hosting へのデプロイ設定**（`firebase.json` の hosting セクション等）。
