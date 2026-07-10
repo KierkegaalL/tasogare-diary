@@ -20,6 +20,9 @@ vi.mock('../serviceAccount', () => ({
 
 const ENV = {} as Env;
 const DOCS_BASE = 'https://firestore.googleapis.com/v1/projects/proj-1/databases/(default)/documents';
+// documents:commit 等の Write.delete に渡すリソース名（URL用の DOCS_BASE とは異なり
+// https://firestore.googleapis.com/v1/ プレフィックスを含まない）。
+const DOC_RESOURCE_BASE = 'projects/proj-1/databases/(default)/documents';
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -357,7 +360,8 @@ describe('deleteUserData', () => {
     const writes = JSON.parse((commitCalls()[0]![1] as RequestInit).body as string).writes as {
       delete: string;
     }[];
-    expect(writes[writes.length - 1]!.delete).toBe(`${DOCS_BASE}/users/u1`);
+    // documents:commit の delete 名は Firestore の document.name と同じ形式（URLプレフィックスなし）。
+    expect(writes[writes.length - 1]!.delete).toBe(`${DOC_RESOURCE_BASE}/users/u1`);
   });
 
   it('既知スキーマに無い直下コレクションも削除対象に加える', async () => {

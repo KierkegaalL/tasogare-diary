@@ -13,6 +13,13 @@ function documentsBase(projectId: string): string {
   return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
 }
 
+// documents:commit の Write.delete 等に渡すリソース名（Firestore がドキュメントに割り当てる
+// `document.name` と同じ形式）。documentsBase() はリクエスト URL 用の完全な HTTP URL であり、
+// スキーム・ホスト・バージョン（https://firestore.googleapis.com/v1/）を含む点が異なる。
+function documentResourceName(projectId: string, docPath: string): string {
+  return `projects/${projectId}/databases/(default)/documents/${docPath}`;
+}
+
 async function authHeaders(env: Env): Promise<Record<string, string>> {
   const token = await getFirestoreAccessToken(env);
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -418,7 +425,7 @@ export async function deleteUserData(env: Env, uid: string): Promise<number> {
     names.push(...(await queryDescendantNames(env, projectId, userDocPath, collectionId)));
   }
   // 親ドキュメント自身は最後に消す（順序は必須ではないが、途中失敗時に users/{uid} が残る方が再実行しやすい）。
-  names.push(`${documentsBase(projectId)}/${userDocPath}`);
+  names.push(documentResourceName(projectId, userDocPath));
 
   await commitDeletes(env, projectId, names);
   return names.length;
