@@ -165,8 +165,9 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 ```json
 { "type": "monthly", "periodKey": "2026-07" }
 ```
-  - `type`: `weekly` / `monthly` 以外は `invalid-argument`。
-  - `periodKey`: `weekly` は `YYYY-Www`（ISO8601 週・月曜始まり）、`monthly` は `YYYY-MM`。形式不正、および**その年に存在しない第53週**は `invalid-argument`。
+  - `type`: `weekly` / `monthly` / `quarterly` 以外は `invalid-argument`。
+  - `periodKey`: `weekly` は `YYYY-Www`（ISO8601 週・月曜始まり）、`monthly` / `quarterly` は `YYYY-MM`。形式不正、および**その年に存在しない第53週**は `invalid-argument`。
+  - `quarterly`（過去3ヶ月・[screen.md](screen.md) 4.1）: `periodKey` は**末尾の月**（`YYYY-MM`、通常は今月）を表し、その月を含む**直近3ヶ月**（末尾月＋前2ヶ月、年跨ぎ可）を集計する。暦上の四半期ではない。`periodId` は `quarterly_YYYY-MM`（`monthly_YYYY-MM` とは別キー）。
 - Response（`users/{uid}/insights/{periodId}` に保存される内容と同型）:
 ```json
 {
@@ -281,7 +282,7 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
   - `pairings` は `uid` の `runQuery`（`select: __name__`）で該当文書のみ削除。
   - Auth ユーザー削除は Identity Toolkit Admin API（`accounts:delete`）を呼ぶため、**`datastore` とは別に `identitytoolkit` スコープのアクセストークン**を取得する（`worker/src/serviceAccount.ts` の `getIdentityToolkitAccessToken`。トークンはスコープごとにキャッシュ）。
   - 削除順序と冪等性は 6.1 を参照。**設定画面の削除導線 UI は未実装**（[screen.md](screen.md) 3.9 で「将来」の扱い。クライアントの API 層 `src/services/account.ts` のみ用意）。
-- **Web ダッシュボード（実装済み・Phase4）**: `web/`（Next.js・静的エクスポート／Firebase Hosting 前提）。QRペアリング照合でサインイン（5.2）し、`generateInsight`（3.5）から週次/月次まとめを取得して感情推移・よく使う言葉・AIまとめを表示する（閲覧専用・U-09）。Worker の API は既存のものを Web クライアント（`web/src/lib/worker.ts`）から呼ぶだけで、Worker 側の追加実装は不要。配色・型は `shared/`（`shared/theme/tokens.ts`・`shared/types/*`）をモバイルと共有。日記本文の閲覧（`/entries`・Firestore 直読）・Hosting デプロイ設定（`firebase.json`/`.firebaserc`）・カメラ QR ライブ読取（`/connect`）・`/entries` の検索/無限スクロール・Apple/Google サインイン代替（`/connect`・`web/src/lib/oauth.ts`）も実装済み。**未対応（後続）**: モバイル側の匿名アカウント→Apple/Google リンク昇格・「過去3ヶ月」タブ（[web/README.md](../web/README.md)・[architecture.md](architecture.md) 第6章）。
+- **Web ダッシュボード（実装済み・Phase4）**: `web/`（Next.js・静的エクスポート／Firebase Hosting 前提）。QRペアリング照合でサインイン（5.2）し、`generateInsight`（3.5）から週次/月次まとめを取得して感情推移・よく使う言葉・AIまとめを表示する（閲覧専用・U-09）。Worker の API は既存のものを Web クライアント（`web/src/lib/worker.ts`）から呼ぶだけで、Worker 側の追加実装は不要。配色・型は `shared/`（`shared/theme/tokens.ts`・`shared/types/*`）をモバイルと共有。日記本文の閲覧（`/entries`・Firestore 直読）・Hosting デプロイ設定（`firebase.json`/`.firebaserc`）・カメラ QR ライブ読取（`/connect`）・`/entries` の検索/無限スクロール・Apple/Google サインイン代替（`/connect`・`web/src/lib/oauth.ts`）・「過去3ヶ月」タブ（`generateInsight` の `type: 'quarterly'`・`worker/src/insight.ts`）も実装済み。**未対応（後続）**: モバイル側の匿名アカウント→Apple/Google リンク昇格（[web/README.md](../web/README.md)・[architecture.md](architecture.md) 第6章）。
 - **未対応（将来）**: `chat` のサーバ側文脈補完（当該エントリ本文・過去要約）は現状クライアントの直近履歴のみを送信。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
 
 ### 未確定

@@ -15,7 +15,7 @@ import { DashCard } from '@/components/DashCard';
 import { MoodChart } from '@/components/MoodChart';
 import { WordRank } from '@/components/WordRank';
 
-const PERIODS: InsightType[] = ['weekly', 'monthly'];
+const PERIODS: InsightType[] = ['weekly', 'monthly', 'quarterly'];
 
 type Load =
   | { state: 'loading' }

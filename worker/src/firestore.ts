@@ -220,7 +220,7 @@ export async function queryEntriesByDateRange(
 // ==========================================================================
 
 export interface InsightDoc {
-  type: 'weekly' | 'monthly';
+  type: 'weekly' | 'monthly' | 'quarterly';
   periodKey: string;
   rangeStart: string;
   rangeEnd: string;
@@ -252,7 +252,7 @@ export async function getInsight(env: Env, uid: string, periodId: string): Promi
   const rangeStart = f?.rangeStart?.stringValue;
   const rangeEnd = f?.rangeEnd?.stringValue;
   if (
-    (type !== 'weekly' && type !== 'monthly') ||
+    (type !== 'weekly' && type !== 'monthly' && type !== 'quarterly') ||
     !periodKey ||
     !rangeStart ||
     !rangeEnd ||
