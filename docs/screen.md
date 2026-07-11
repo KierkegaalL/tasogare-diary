@@ -164,7 +164,7 @@ graph LR
 - **フロー**: QR トークンを Functions が照合→カスタム認証トークン発行→サインイン（[architecture.md](architecture.md) 第3.4節相当のシーケンス、詳細は api-contract.md）。
 - **状態**: 待機/読取成功/失効・不正トークン（再取得を促す）/成功（ダッシュボードへ）。
 - **A11y**: カメラ不可環境向けに Apple/Google サインインを代替提供。`softPulse` は reduced-motion で停止。
-- **実装メモ（Phase4・一部実装）**: `web/src/app/connect`（カメラでの QR ライブ読取＋コード貼り付けで連携。`web/src/components/QrScanner.tsx`、`getUserMedia`＋`jsQR` によるデコード）＋`web/src/app/pair`（モバイル QR ディープリンク `<WEB_URL>/pair?token=…` の着地点）。照合は `verifyPairingToken`→`signInWithCustomToken`（api-contract.md 5.2）。**Apple/Google サインイン代替は未実装**（[web/README.md](../web/README.md)）。
+- **実装メモ（Phase4・実装済み）**: `web/src/app/connect`（カメラでの QR ライブ読取＋コード貼り付けで連携。`web/src/components/QrScanner.tsx`、`getUserMedia`＋`jsQR` によるデコード）＋`web/src/app/pair`（モバイル QR ディープリンク `<WEB_URL>/pair?token=…` の着地点）。照合は `verifyPairingToken`→`signInWithCustomToken`（api-contract.md 5.2）。**Apple/Google サインイン代替も実装済み**（`web/src/lib/oauth.ts` の `signInWithProvider`＝`signInWithPopup(GoogleAuthProvider / OAuthProvider('apple.com'))`。`/connect` に「または」区切り＋Google/Apple ボタンを常設。なお本画面は visual-design.html の `.ghost-btn` 等のクラス名ではなく、connect 全体と同じくインライン style オブジェクト（`styles.outlineButton`）で実装している）。**前提**: 同じ資格情報がモバイルの匿名アカウントへ `linkWithCredential` で昇格済みのときのみ同一 uid となり既存日記が見える（恒久アカウント昇格は別タスク。`src/services/auth/firebaseAuthProvider.ts` の TODO・[environments.md](../.claude/rules/environments.md)）。Firebase Console で各プロバイダの有効化が必要（[web/README.md](../web/README.md)）。
 
 ### 4.3 日記一覧（Web）（`entriesView`）
 - **目的**: 書いた日記本文をパソコンでそのまま読み返す（3.10 の約束「パソコンでも、書いた日記をそのまま見られます」を Web で実現）。分析（4.1）と役割分担し、こちらは**本文閲覧**を担う。
