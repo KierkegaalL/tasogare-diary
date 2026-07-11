@@ -7,12 +7,11 @@ import { useRootNavigation } from '../../app/navigation/hooks';
 import { ScreenShell } from '../../components/ScreenShell';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { createPairingToken, isPairingAvailable, pairingQrPayload } from '../../services/pairing';
-import { canLinkAccount, AuthLinkError, linkKindLabel } from '../../services/auth';
+import { AuthLinkError, linkKindLabel } from '../../services/auth';
 import type { AccountLinkKind } from '../../services/auth';
 import { useAuthStore } from '../../stores/authStore';
+import { useLinkableAccountKinds } from '../../hooks/useAccountLink';
 import { colors, fonts, radius, spacing } from '../../theme';
-
-const LINK_KINDS: AccountLinkKind[] = ['apple', 'google'];
 
 // ⑨ Webで見る（QR表示 / screen.md 3.10）。
 // createPairingToken で短命トークン（60秒）を発行し QR 表示。失効に合わせて自動再発行する。
@@ -123,15 +122,14 @@ export function WebConnectScreen() {
 // ネイティブ資格情報ソースが提供されている環境（対応した開発ビルド）でのみ表示する。
 // 既定（Expo Go）は canLinkAccount が false のため何も描画しない（未対応の空UIを出さない）。
 function AccountLinkSection() {
-  const provider = useAuthStore((s) => s.user?.provider);
   const linkAccount = useAuthStore((s) => s.linkAccount);
   const [busy, setBusy] = useState<AccountLinkKind | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const kinds = LINK_KINDS.filter((k) => canLinkAccount(k));
   // 恒久化はまだ匿名のときだけ。既に Apple/Google 昇格済み、または導線が使えない環境では出さない。
-  if (provider !== 'anonymous' || kinds.length === 0) return null;
+  const kinds = useLinkableAccountKinds();
+  if (kinds.length === 0) return null;
 
   const onLink = async (kind: AccountLinkKind) => {
     setBusy(kind);
