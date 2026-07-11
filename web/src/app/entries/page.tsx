@@ -1,48 +1,61 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 
 import { useAuth } from '@/hooks/useAuth';
-import { fetchEntriesForMonth, type DiaryEntry } from '@/lib/entries';
-import { currentMonthKey, formatMonthLabel, shiftMonthKey } from '@/lib/period';
+import { fetchEntriesPage, type DiaryEntry } from '@/lib/entries';
 import { EntryList } from '@/components/EntryList';
 import { DashCard } from '@/components/DashCard';
 
-type Load =
-  | { state: 'loading' }
-  | { state: 'error'; message: string }
-  | { state: 'ready'; entries: DiaryEntry[] };
+const PAGE_SIZE = 20;
 
-// 日記一覧（Web・閲覧専用 U-09）。書いた日記本文をそのまま月ごとに振り返る（screen.md 3.10 の約束を Web で実現）。
-// Firestore を直読し、月移動で過去へさかのぼる。編集導線は持たない。
+type Status = 'loading' | 'ready' | 'error';
+
+// 日記一覧（Web・閲覧専用 U-09）。書いた日記本文をそのまま通し読みで振り返る（screen.md 3.10 の約束を Web で実現）。
+// Firestore を直読し、スクロールで過去へさかのぼる（無限スクロール）。検索は読み込み済み範囲内をキーワードで絞り込む
+// （Firestore は全文検索非対応・本文を外部の検索サービスへは送らない方針のため）。編集導線は持たない。
 export default function EntriesPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  const [monthKey, setMonthKey] = useState<string>(() => currentMonthKey());
-  const [load, setLoad] = useState<Load>({ state: 'loading' });
-  // リクエスト世代ガード。月を素早く切り替えても古い応答で新しい月を上書きしない。
-  const requestId = useRef(0);
+  const [entries, setEntries] = useState<DiaryEntry[]>([]);
+  const [status, setStatus] = useState<Status>('loading');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const cursorRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  // 初回ロードの世代ガード。同一 uid で複数回発火しても、最新の呼び出し以外の応答で状態を巻き戻さない。
+  const firstPageRequestId = useRef(0);
 
   useEffect(() => {
     if (!loading && !user) router.replace('/connect');
   }, [user, loading, router]);
 
-  const reload = useCallback(
-    async (uid: string, key: string) => {
-      const myId = ++requestId.current;
-      setLoad({ state: 'loading' });
+  const loadMore = useCallback(
+    async (uid: string, isFirstPage: boolean) => {
+      const myRequestId = isFirstPage ? ++firstPageRequestId.current : firstPageRequestId.current;
+      if (isFirstPage) {
+        setStatus('loading');
+      } else {
+        setLoadingMore(true);
+      }
       try {
-        const entries = await fetchEntriesForMonth(uid, key);
-        if (myId !== requestId.current) return;
-        setLoad({ state: 'ready', entries });
+        const page = await fetchEntriesPage(uid, isFirstPage ? null : cursorRef.current, PAGE_SIZE);
+        if (isFirstPage && myRequestId !== firstPageRequestId.current) return;
+        cursorRef.current = page.cursor;
+        setEntries((prev) => (isFirstPage ? page.entries : [...prev, ...page.entries]));
+        setHasMore(page.hasMore);
+        setStatus('ready');
       } catch (err) {
-        if (myId !== requestId.current) return;
-        setLoad({
-          state: 'error',
-          message: err instanceof Error ? err.message : '日記の取得に失敗しました。',
-        });
+        if (isFirstPage && myRequestId !== firstPageRequestId.current) return;
+        setStatus('error');
+        setErrorMessage(err instanceof Error ? err.message : '日記の取得に失敗しました。');
+      } finally {
+        setLoadingMore(false);
       }
     },
     [],
@@ -50,15 +63,40 @@ export default function EntriesPage() {
 
   useEffect(() => {
     if (loading || !user) return;
-    void reload(user.uid, monthKey);
-  }, [user, loading, monthKey, reload]);
+    cursorRef.current = null;
+    void loadMore(user.uid, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, loading]);
+
+  // 無限スクロール: 一覧末尾の目印が画面に入ったら次ページを読み込む。
+  useEffect(() => {
+    if (!user || status !== 'ready' || !hasMore || loadingMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (observerEntries) => {
+        if (observerEntries.some((e) => e.isIntersecting)) {
+          void loadMore(user.uid, false);
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [user, status, hasMore, loadingMore, loadMore]);
+
+  const normalizedSearch = searchText.trim().toLowerCase();
+  const filteredEntries = useMemo(() => {
+    if (!normalizedSearch) return entries;
+    return entries.filter((entry) => {
+      if (entry.bodyText.toLowerCase().includes(normalizedSearch)) return true;
+      return entry.words.some((w) => w.text.toLowerCase().includes(normalizedSearch));
+    });
+  }, [entries, normalizedSearch]);
 
   if (loading || !user) {
     return <main style={styles.centered}>読み込み中…</main>;
   }
-
-  // 当月以降（未来月を含む）は「次の月」へ進めない。
-  const isAtOrAfterCurrentMonth = monthKey >= currentMonthKey();
 
   return (
     <div style={styles.page}>
@@ -72,25 +110,28 @@ export default function EntriesPage() {
         </Link>
       </header>
 
-      <div style={styles.monthNav}>
-        <button onClick={() => setMonthKey((k) => shiftMonthKey(k, -1))} style={styles.monthBtn}>
-          ← 前の月
-        </button>
-        <span style={styles.monthLabel}>{formatMonthLabel(monthKey)}</span>
-        <button
-          onClick={() => setMonthKey((k) => shiftMonthKey(k, 1))}
-          disabled={isAtOrAfterCurrentMonth}
-          style={{ ...styles.monthBtn, ...(isAtOrAfterCurrentMonth ? styles.monthBtnDisabled : null) }}
-        >
-          次の月 →
-        </button>
-      </div>
+      <input
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        placeholder="読み込み済みの日記をキーワードで絞り込む"
+        aria-label="日記の検索"
+        style={styles.search}
+      />
 
       <EntriesBody
-        monthKey={monthKey}
-        load={load}
-        onRetry={() => void reload(user.uid, monthKey)}
+        status={status}
+        errorMessage={errorMessage}
+        entries={filteredEntries}
+        hasSearch={normalizedSearch.length > 0}
+        hasMore={hasMore}
+        onRetry={() => void loadMore(user.uid, true)}
       />
+
+      {status === 'ready' && hasMore && <div ref={sentinelRef} aria-hidden />}
+      {loadingMore && <p style={styles.info}>さらに読み込んでいます…</p>}
+      {status === 'ready' && !hasMore && entries.length > 0 && (
+        <p style={styles.info}>すべての日記を読み込みました。</p>
+      )}
 
       <p style={styles.note}>この一覧は Web でのみ表示します（スマホには出さない設計です）。</p>
     </div>
@@ -98,37 +139,47 @@ export default function EntriesPage() {
 }
 
 function EntriesBody({
-  monthKey,
-  load,
+  status,
+  errorMessage,
+  entries,
+  hasSearch,
+  hasMore,
   onRetry,
 }: {
-  monthKey: string;
-  load: Load;
+  status: Status;
+  errorMessage: string;
+  entries: DiaryEntry[];
+  hasSearch: boolean;
+  hasMore: boolean;
   onRetry: () => void;
 }) {
-  if (load.state === 'loading') {
+  if (status === 'loading') {
     return <p style={styles.info}>日記を読み込んでいます…</p>;
   }
-  if (load.state === 'error') {
+  if (status === 'error') {
     return (
       <DashCard title="読み込みに失敗しました">
-        <p style={styles.info}>{load.message}</p>
+        <p style={styles.info}>{errorMessage}</p>
         <button onClick={onRetry} style={styles.retry}>
           再試行
         </button>
       </DashCard>
     );
   }
-  if (load.entries.length === 0) {
+  if (entries.length === 0) {
     return (
-      <DashCard title="この月の日記はありません">
+      <DashCard title={hasSearch ? '一致する日記が見つかりません' : 'まだ日記がありません'}>
         <p style={styles.info}>
-          {formatMonthLabel(monthKey)}の日記がまだありません。スマホで日記を書くと、ここに表示されます。
+          {hasSearch
+            ? hasMore
+              ? '読み込み済みの範囲に一致する日記がありませんでした。下にスクロールしてさらに読み込むか、キーワードを変えてみてください。'
+              : '読み込んだすべての日記の中に一致するものがありませんでした。キーワードを変えてみてください。'
+            : 'スマホで日記を書くと、ここに表示されます。'}
         </p>
       </DashCard>
     );
   }
-  return <EntryList entries={load.entries} />;
+  return <EntryList entries={entries} />;
 }
 
 const styles: Record<string, CSSProperties> = {
@@ -150,18 +201,17 @@ const styles: Record<string, CSSProperties> = {
   title: { fontFamily: 'var(--font-display)', fontSize: 24, margin: 0 },
   subtitle: { color: 'var(--ink-soft)', fontSize: 13, margin: '4px 0 0' },
   navLink: { flexShrink: 0, fontSize: 13, color: 'var(--dusk-deep)', textDecoration: 'none' },
-  monthNav: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20 },
-  monthBtn: {
-    padding: '8px 14px',
-    fontSize: 13,
-    color: 'var(--ink-soft)',
-    background: 'var(--paper-soft)',
+  search: {
+    width: '100%',
+    padding: '11px 14px',
+    fontSize: 14,
+    marginBottom: 20,
     border: '1px solid var(--line)',
     borderRadius: 'var(--radius-pill)',
+    background: 'var(--paper)',
+    color: 'var(--ink)',
   },
-  monthBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
-  monthLabel: { fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--ink)' },
-  info: { color: 'var(--ink-soft)', fontSize: 14, margin: 0 },
+  info: { color: 'var(--ink-soft)', fontSize: 14, margin: '12px 0', textAlign: 'center' },
   note: { color: 'var(--ink-faint)', fontSize: 12, textAlign: 'center', margin: '24px 0 0' },
   retry: {
     marginTop: 14,

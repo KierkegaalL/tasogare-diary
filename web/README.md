@@ -18,7 +18,7 @@ PC で日記を振り返るための **閲覧専用**ダッシュボード（[U-
 | `/connect` | デバイスをつなぐ（QR の内容を貼り付けて連携） | 4.2 |
 | `/pair?token=…` | モバイル QR ディープリンクの着地点（照合→サインイン） | 4.2 |
 | `/dashboard` | 振り返りダッシュボード（感情推移・よく使う言葉・AIまとめ） | 4.1 |
-| `/entries` | 日記の一覧（月ごとに本文をそのまま閲覧・Firestore 直読） | 4.3 |
+| `/entries` | 日記の一覧（無限スクロール＋検索で本文をそのまま閲覧・Firestore 直読） | 4.3 |
 
 ## 環境変数
 
@@ -56,6 +56,6 @@ firebase deploy --only hosting --project prod
 
 - ~~**カメラでの QR ライブ読取**（`/connect`）~~: 実装済み（`web/src/components/QrScanner.tsx`。`getUserMedia`＋[`jsQR`](https://github.com/cozmo/jsQR) でデコード）。非対応ブラウザ・許可拒否時は従来の「コード（URL）を貼り付ける」導線にフォールバックする。
 - **Apple/Google サインイン**（QR が使えない環境の代替。[screen.md](../docs/screen.md) 4.2）: 恒久アカウント昇格タスクと合わせて対応（[environments.md](../.claude/rules/environments.md)）。
-- ~~**日記本文の閲覧**（Firestore 直接読取）~~: 実装済み（`/entries`・[screen.md](../docs/screen.md) 4.3）。**検索・無限スクロール**（月ナビではなく通し閲覧）は後続。
+- ~~**日記本文の閲覧**（Firestore 直接読取）~~: 実装済み（`/entries`・[screen.md](../docs/screen.md) 4.3）。~~**検索・無限スクロール**（月ナビではなく通し閲覧）~~: 実装済み（`fetchEntriesPage` の `startAfter` カーソル＋`IntersectionObserver`。検索は読み込み済み範囲のクライアント側キーワード絞り込み）。
 - **「過去3ヶ月」タブ**（[screen.md](../docs/screen.md) 4.1）: `generateInsight` が単一期間（weekly/monthly）のみ対応のため未実装。複数月集計の対応後に追加する。
 - ~~**Firebase Hosting へのデプロイ設定**~~: 実装済み（`firebase.json` の `hosting` セクション・`.firebaserc`）。実プロジェクト作成・CI 組み込みは後続。

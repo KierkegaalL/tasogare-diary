@@ -1,5 +1,5 @@
-import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
-import type { DocumentData } from 'firebase/firestore';
+import { collection, getDocs, limit, orderBy, query, startAfter } from 'firebase/firestore';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { MOOD_LEVELS, type MoodLevel } from '@shared/theme/tokens';
 
 import { getDb } from './firebase';
@@ -49,15 +49,26 @@ function fromDoc(id: string, data: DocumentData): DiaryEntry {
   };
 }
 
-// 指定月（YYYY-MM）のエントリを date 降順で取得する。
-// date は文字列なので辞書順の範囲比較で月内を絞り込む（同一フィールドの範囲＋並び替えのため複合インデックス不要）。
-export async function fetchEntriesForMonth(uid: string, monthKey: string): Promise<DiaryEntry[]> {
-  const q = query(
-    collection(getDb(), 'users', uid, 'entries'),
-    where('date', '>=', `${monthKey}-01`),
-    where('date', '<=', `${monthKey}-31`), // '2026-02-31' でも辞書順で月末日以下を包含する
-    orderBy('date', 'desc'),
-  );
+export interface EntriesPage {
+  entries: DiaryEntry[];
+  cursor: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}
+
+// 日記一覧を date 降順で 1 ページ分取得する（無限スクロール用）。
+// cursor（前ページ最後の doc）を渡すと続きから取得する。hasMore 判定のため pageSize+1 件取得して余りを捨てる。
+export async function fetchEntriesPage(
+  uid: string,
+  cursor: QueryDocumentSnapshot<DocumentData> | null,
+  pageSize: number,
+): Promise<EntriesPage> {
+  const constraints = [orderBy('date', 'desc'), ...(cursor ? [startAfter(cursor)] : []), limit(pageSize + 1)];
+  const q = query(collection(getDb(), 'users', uid, 'entries'), ...constraints);
   const snap = await getDocs(q);
-  return snap.docs.map((d) => fromDoc(d.id, d.data()));
+  const docs = snap.docs.slice(0, pageSize);
+  return {
+    entries: docs.map((d) => fromDoc(d.id, d.data())),
+    cursor: docs.at(-1) ?? null,
+    hasMore: snap.docs.length > pageSize,
+  };
 }
