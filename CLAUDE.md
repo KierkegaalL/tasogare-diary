@@ -20,6 +20,7 @@
 ```
 tasogare-diary/
 ├── CLAUDE.md              # 本ファイル（ルールの入口）
+├── Memory.md              # セッション間の状況記録（プロジェクト構成・技術情報・完了/残タスク）
 ├── README.md
 ├── docs/                  # 詳細設計（ステップ3で整備）
 │   ├── api-contract.md    # API仕様（Claude API / Firebase Functions）
@@ -63,7 +64,7 @@ tasogare-diary/
      - レビュー・整合チェック・残タスク調査は `reviewer` サブエージェント（Sonnet 5 固定）を起動して行う。詳細（モデル検知方法・未検知時の挙動）は [build-commands.md](.claude/rules/build-commands.md) を参照。
 
 8. **セッション消費量の節約（チェックポイント方式）**
-   1機能（1PR）の完了直後など、区切りのよいタイミング（チェックポイント）で、残タスクを `TaskCreate`/`TaskUpdate` に構造化して保持し、進捗・残タスクを要約したうえで `/compact` の実行をユーザーに提案すること。数値ベースの消費量（%）は実行中に正確に取得できないため判断基準にしない。詳細は [build-commands.md](.claude/rules/build-commands.md) を参照。
+   1機能（1PR）の完了直後など、区切りのよいタイミング（チェックポイント）で、残タスクを `TaskCreate`/`TaskUpdate` に構造化して保持し、進捗・残タスクを要約したうえで `/compact` の実行をユーザーに提案すること。数値ベースの消費量（%）は実行中に正確に取得できないため判断基準にしない。同じチェックポイントで [Memory.md](Memory.md)（完了済み作業・残タスク・技術情報の節）も更新すること。詳細は [build-commands.md](.claude/rules/build-commands.md) を参照。
 
 ## `.claude/rules/` 参照一覧
 
