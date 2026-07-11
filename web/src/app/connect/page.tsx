@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { isFirebaseConfigured } from '@/lib/firebase';
 import { isWorkerConfigured } from '@/lib/worker';
 import { extractPairingToken, signInWithPairingToken } from '@/lib/pairing';
+import { signInWithProvider, OAuthError, type OAuthKind } from '@/lib/oauth';
 import { CenteredCard } from '@/components/CenteredCard';
 import { QrScanner } from '@/components/QrScanner';
 
@@ -21,7 +22,9 @@ export default function ConnectPage() {
   const [error, setError] = useState('');
   const [scanning, setScanning] = useState(false);
 
-  // すでにサインイン済みならダッシュボードへ。
+  // サインイン成立でダッシュボードへ。QR／コード／Apple・Google いずれの導線も、
+  // 成功すれば onAuthStateChanged（useAuth）が user を立てるため、遷移はここへ一本化する
+  // （各ハンドラ内での明示 replace は二重遷移になるため持たない）。
   useEffect(() => {
     if (!loading && user) router.replace('/dashboard');
   }, [user, loading, router]);
@@ -38,10 +41,9 @@ export default function ConnectPage() {
     setBusy(true);
     try {
       await signInWithPairingToken(token);
-      router.replace('/dashboard');
+      // 遷移は useEffect（user 検知）に任せる。
     } catch (err) {
       setError(err instanceof Error ? err.message : '連携に失敗しました。');
-    } finally {
       setBusy(false);
     }
   }
@@ -53,6 +55,21 @@ export default function ConnectPage() {
   function handleDecode(text: string) {
     setScanning(false);
     void connectWithRaw(text);
+  }
+
+  async function handleOAuth(kind: OAuthKind) {
+    setError('');
+    setBusy(true);
+    try {
+      await signInWithProvider(kind);
+      // 遷移は useEffect（user 検知）に任せる。成功時は busy のまま遷移するのでここでは戻さない。
+    } catch (err) {
+      // ユーザーによるキャンセル（silent）はエラー表示しない。
+      if (!(err instanceof OAuthError && err.silent)) {
+        setError(err instanceof Error ? err.message : 'サインインに失敗しました。');
+      }
+      setBusy(false);
+    }
   }
 
   return (
@@ -79,7 +96,11 @@ export default function ConnectPage() {
       ) : (
         <>
           {!scanning && (
-            <button onClick={() => setScanning(true)} style={styles.secondary} disabled={busy}>
+            <button
+              onClick={() => setScanning(true)}
+              style={{ ...styles.outlineButton, marginBottom: 14 }}
+              disabled={busy}
+            >
               カメラで読み取る
             </button>
           )}
@@ -99,6 +120,30 @@ export default function ConnectPage() {
           <button onClick={handleConnect} style={styles.primary} disabled={busy}>
             {busy ? '連携しています…' : 'つなぐ'}
           </button>
+
+          <div style={styles.divider} aria-hidden>
+            <span style={styles.dividerLine} />
+            <span style={styles.dividerText}>または</span>
+            <span style={styles.dividerLine} />
+          </div>
+
+          <button
+            onClick={() => void handleOAuth('google')}
+            style={{ ...styles.outlineButton, marginTop: 10 }}
+            disabled={busy}
+          >
+            Google でサインイン
+          </button>
+          <button
+            onClick={() => void handleOAuth('apple')}
+            style={{ ...styles.outlineButton, marginTop: 10 }}
+            disabled={busy}
+          >
+            Apple でサインイン
+          </button>
+          <p style={styles.oauthNote}>
+            スマホで Apple／Google 連携を済ませたアカウントでサインインしてください。
+          </p>
         </>
       )}
 
@@ -147,16 +192,25 @@ const styles = {
     color: 'var(--paper-soft)',
     fontSize: 15,
   } as CSSProperties,
-  secondary: {
-    marginBottom: 14,
+  // アウトライン系ボタン（カメラ読取・Apple/Google サインイン共通）。上下 margin は呼び出し側で付与。
+  outlineButton: {
     width: '100%',
-    padding: '11px 24px',
+    padding: '12px 24px',
     border: '1px solid var(--line)',
     borderRadius: 'var(--radius-pill)',
     background: 'var(--paper-soft)',
     color: 'var(--ink)',
     fontSize: 14,
   } as CSSProperties,
+  divider: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    margin: '18px 0 6px',
+  } as CSSProperties,
+  dividerLine: { flex: 1, height: 1, background: 'var(--line)' } as CSSProperties,
+  dividerText: { color: 'var(--ink-faint)', fontSize: 12 } as CSSProperties,
+  oauthNote: { color: 'var(--ink-faint)', fontSize: 12, margin: '12px 0 0' } as CSSProperties,
   error: { color: 'var(--heavy)', fontSize: 13, margin: '10px 0 0' } as CSSProperties,
   notice: { color: 'var(--ink-soft)', fontSize: 13, margin: '4px 0 0' } as CSSProperties,
   footNote: {
