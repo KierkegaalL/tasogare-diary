@@ -65,7 +65,13 @@
   2. 「ウェブアプリ」を追加し `firebaseConfig` を取得
   3. Authentication → Sign-in method → **匿名（Anonymous）を有効化**
   4. 取得値を `.env`（gitignore 済み）に設定 → 再起動で Firebase 匿名認証に切替
-- Apple/Google サインインは、恒久アカウントが要る段階（「Webで見る」/バックアップ）で **匿名アカウントへリンク**して昇格する。**昇格ロジックは実装済み**（`firebaseAuthProvider.linkWith`＝`linkWithCredential`、`authStore.linkAccount`、`WebConnectScreen` の導線。`credential-already-in-use` 等のエラーは `AuthLinkError` に写像）。ただし**ネイティブのサインインUI（Apple/Google の資格情報取得）は開発ビルド前提の後続**で、`OAuthCredentialSource` シーム（`src/services/auth/credentialSource.ts`）越しに差し替える設計。既定（Expo Go）はシーム未提供のため `canLinkAccount()` が false となり導線を出さない。配布ビルドで `setCredentialSource` に expo-apple-authentication / Google サインイン等の実装を注入する。
+- Apple/Google サインインは、恒久アカウントが要る段階（「Webで見る」/バックアップ）で **匿名アカウントへリンク**して昇格する。**昇格ロジックは実装済み**（`firebaseAuthProvider.linkWith`＝`linkWithCredential`、`authStore.linkAccount`、`WebConnectScreen` の導線。`credential-already-in-use` 等のエラーは `AuthLinkError` に写像）。
+- **ネイティブの資格情報取得（Apple/Google サインインUI）も実装済み**（`src/services/auth/nativeCredentialSource.ts`＝中核ロジック＝ネイティブ非依存で単体テスト可能／`src/services/auth/nativeCredentialSourceInstall.ts`＝実モジュール束ね＋`installNativeCredentialSource()`）。実装は `expo-apple-authentication`＋`expo-crypto`（Apple。生 nonce→SHA256→署名→`identityToken`＋rawNonce）と `@react-native-google-signin/google-signin`（Google。`idToken`＋accessToken）。`OAuthCredentialSource` シーム（`credentialSource.ts`）越しに `setCredentialSource` で差し込む。
+- **有効化には開発ビルドが必要**（下記のためネイティブモジュールが要る。Expo Go では未適用）:
+  1. `app.config.ts` に config plugin（`expo-apple-authentication`／`@react-native-google-signin/google-signin`）と `ios.usesAppleSignIn: true` を設定済み。
+  2. Google は `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`（webClientId＝Firebase 用 idToken 取得）を `.env` に設定（[.env.example](../../.env.example)）。未設定なら Google は利用不可。iOS はさらに `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME`（逆順クライアントID）を設定すると `app.config.ts` が config plugin の `iosUrlScheme` に渡す（リダイレクト受け取りに必要。Android は不要）。
+  3. 開発ビルドの起動エントリで一度 `installNativeCredentialSource()` を呼ぶ（App.tsx＝Expo Go 既定パスからは import しない。Metro が実モジュールを Expo Go バンドルへ引き込むのを避けるため）。
+  - Expo Go 既定バンドルは `installNativeCredentialSource` を読み込まないため `canLinkAccount()` は false のまま＝導線非表示。Firebase Console 側で Apple/Google プロバイダの有効化（Apple は Apple Developer の「Sign in with Apple」構成）が別途必要。
 
 ## Web ダッシュボード クライアント設定（Phase4・`web/`）
 
