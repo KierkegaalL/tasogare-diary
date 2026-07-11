@@ -156,7 +156,7 @@ graph LR
 - **データ**: `insights`（`monthly` 主、`moodDistribution`/`topWords`/`narrative`）、`wordStats`（[data.md](data.md) 第3.4/3.5節）。生成は Functions（案B）。
 - **状態**: 生成前＝プレースホルダ。データ不足（記録少）＝その旨を表示。読取専用（編集可否 U-09）。
 - **A11y**: グラフに数値/凡例を併記、色のみに依存しない。
-- **実装メモ（Phase4・実装済み）**: `web/src/app/dashboard`。まとめは Worker の `generateInsight`（本文を LLM へ送らない）から取得。期間タブは**今週/今月**を実装（`.mood-chart`＝`MoodChart`／`.word-rank`＝`WordRank`／`.dash-narrative`＝AIまとめ）。**感情推移カードは現状「期間全体の百分率」を1本の積み上げバーで表示**（`generateInsight` が返す `moodDistribution` は期間集計値のため、カード見出しは「感情の推移」とし「（週ごと）」の週別積み上げは後続）。**「過去3ヶ月」タブは未実装**（`generateInsight` が単一期間のみ対応。[web/README.md](../web/README.md)）。エントリ皆無（`failed-precondition`）は「記録がまだありません」を表示。
+- **実装メモ（Phase4・実装済み）**: `web/src/app/dashboard`。まとめは Worker の `generateInsight`（本文を LLM へ送らない）から取得。期間タブは**今週/今月/過去3ヶ月**を実装（`.mood-chart`＝`MoodChart`／`.word-rank`＝`WordRank`／`.dash-narrative`＝AIまとめ）。**感情推移カードは現状「期間全体の百分率」を1本の積み上げバーで表示**（`generateInsight` が返す `moodDistribution` は期間集計値のため、カード見出しは「感情の推移」とし「（週ごと）」の週別積み上げは後続）。**「過去3ヶ月」タブは実装済み**（`generateInsight` に `type: 'quarterly'` を追加。periodKey は monthly と同じ `YYYY-MM` で末尾の月＝今月を表し、その月を含む直近3ヶ月を集計する＝暦上の四半期ではない。`worker/src/insight.ts` の `quarterlyRange`）。エントリ皆無（`failed-precondition`）は「記録がまだありません」を表示。
 
 ### 4.2 デバイスをつなぐ（Web）（`connectView`）
 - **目的**: モバイルの QR を PC カメラで読み取り、Web をサインインさせる。

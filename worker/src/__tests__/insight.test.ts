@@ -48,9 +48,20 @@ describe('periodRange', () => {
     expect(periodRange('weekly', '2026-W53')).toEqual({ rangeStart: '2026-12-28', rangeEnd: '2027-01-03' });
   });
 
+  it('quarterly は末尾月を含む直近3ヶ月（末尾月＋前2ヶ月）を返す', () => {
+    expect(periodRange('quarterly', '2026-07')).toEqual({ rangeStart: '2026-05-01', rangeEnd: '2026-07-31' });
+    // 年跨ぎ：2026-02 → 2025-12〜2026-02。
+    expect(periodRange('quarterly', '2026-02')).toEqual({ rangeStart: '2025-12-01', rangeEnd: '2026-02-28' });
+    expect(periodRange('quarterly', '2026-01')).toEqual({ rangeStart: '2025-11-01', rangeEnd: '2026-01-31' });
+    // 末尾月がうるう年2月でも末日を正しく取る。
+    expect(periodRange('quarterly', '2024-02')).toEqual({ rangeStart: '2023-12-01', rangeEnd: '2024-02-29' });
+  });
+
   it('形式・範囲が不正な periodKey は invalid-argument', () => {
     expect(() => periodRange('monthly', '2026-13')).toThrowError(/YYYY-MM/);
     expect(() => periodRange('monthly', '2026-7')).toThrowError(/YYYY-MM/);
+    expect(() => periodRange('quarterly', '2026-13')).toThrowError(/YYYY-MM/);
+    expect(() => periodRange('quarterly', '2026-7')).toThrowError(/YYYY-MM/);
     expect(() => periodRange('weekly', '2026-27')).toThrowError(/YYYY-Www/);
     expect(() => periodRange('weekly', '2026-W00')).toThrowError(/週番号/);
   });
@@ -227,6 +238,20 @@ describe('handleGenerateInsight', () => {
       schemaVersion: 1,
     });
     expect(saveInsight).toHaveBeenCalledWith(ENV, 'u1', 'monthly_2026-01', result);
+  });
+
+  it('quarterly は直近3ヶ月を集計し quarterly_ プレフィックスで保存する', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-01T00:00:00.000Z'));
+    vi.mocked(getInsight).mockResolvedValue(null);
+    vi.mocked(queryEntriesByDateRange).mockResolvedValue([entry('2026-05-05', 'calm', ['雨'])]);
+    const llm = llmStub('3ヶ月のまとめ');
+
+    const result = await handleGenerateInsight(ENV, llm, 'u1', { type: 'quarterly', periodKey: '2026-07' });
+
+    expect(queryEntriesByDateRange).toHaveBeenCalledWith(ENV, 'u1', '2026-05-01', '2026-07-31');
+    expect(result).toMatchObject({ type: 'quarterly', periodKey: '2026-07', rangeStart: '2026-05-01', rangeEnd: '2026-07-31' });
+    expect(saveInsight).toHaveBeenCalledWith(ENV, 'u1', 'quarterly_2026-07', result);
   });
 
   it('LLM へ日記本文を渡さない（集計値のみを送る）', async () => {

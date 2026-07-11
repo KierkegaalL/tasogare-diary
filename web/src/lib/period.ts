@@ -28,14 +28,17 @@ export function monthlyKey(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
 }
 
+// quarterly（過去3ヶ月）の periodKey は末尾の月＝今月なので monthlyKey を流用する
+// （Worker がその月を含む直近3ヶ月を範囲にする。insight.ts の quarterlyRange）。
 export function currentPeriodKey(type: InsightType, now: Date = new Date()): string {
   return type === 'weekly' ? weeklyKey(now) : monthlyKey(now);
 }
 
-// タブ表示ラベル（screen.md 4.1：今週 / 今月）。
+// タブ表示ラベル（screen.md 4.1：今週 / 今月 / 過去3ヶ月）。
 export const PERIOD_LABELS: Record<InsightType, string> = {
   weekly: '今週',
   monthly: '今月',
+  quarterly: '過去3ヶ月',
 };
 
 // --- 日記一覧（通し閲覧）用ヘルパー（screen.md 4.x・「書いた日記をそのまま見られる」3.10）---

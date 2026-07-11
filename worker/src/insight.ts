@@ -5,14 +5,16 @@ import { getInsight, queryEntriesByDateRange, saveInsight } from './firestore';
 import type { EntrySummary, InsightDoc } from './firestore';
 import { SYSTEM_GENERATE_INSIGHT } from './prompts';
 
-// generateInsight — 週次/月次まとめ（api-contract.md 3.5 / data.md 3.5）。
+// generateInsight — 週次/月次/過去3ヶ月まとめ（api-contract.md 3.5 / data.md 3.5）。
 // 方式は basic-design.md 4.3 の「案B: サーバで集計・キャッシュし、LLM で文章化」。
 // - 集計は Firestore の entries から算出する（wordStats は Cloud Functions 前提の集計先で未運用のため参照しない）。
 // - LLM へ渡すのは集計値のみ。日記本文は送らない（最小送信、constraints.md / api-contract.md 第8章）。
 // - 結果は users/{uid}/insights/{periodId} にキャッシュする（クライアントは書けないため Admin 経由）。
 // - 定期バッチ（Cron Triggers）での事前生成は未実装。本エンドポイントは表示時オンデマンド生成を担う。
 
-export type InsightType = 'weekly' | 'monthly';
+// quarterly は「過去3ヶ月」（screen.md 4.1）。periodKey は monthly と同じ YYYY-MM で
+// 末尾の月（＝今月）を表し、その月を含む直近3ヶ月を集計する（暦上の四半期ではない）。
+export type InsightType = 'weekly' | 'monthly' | 'quarterly';
 export type MoodLevel = 'calm' | 'tender' | 'heavy';
 
 const MOODS: readonly MoodLevel[] = ['calm', 'tender', 'heavy'] as const;
@@ -62,6 +64,13 @@ function weeklyRange(periodKey: string): { rangeStart: string; rangeEnd: string 
   return { rangeStart: toDateString(monday), rangeEnd: toDateString(monday + 6 * DAY_MS) };
 }
 
+// month（1-12）の末日を YYYY-MM-DD で返す。Date.UTC(year, month, 0) は「month 月の 0 日」＝
+// 前月末日 → month 月の日数。
+function monthEnd(year: number, month: number): string {
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${pad2(month)}-${pad2(lastDay)}`;
+}
+
 function monthlyRange(periodKey: string): { rangeStart: string; rangeEnd: string } {
   const m = MONTHLY_KEY.exec(periodKey);
   if (!m) {
@@ -69,13 +78,34 @@ function monthlyRange(periodKey: string): { rangeStart: string; rangeEnd: string
   }
   const year = Number(m[1]);
   const month = Number(m[2]);
-  // Date.UTC(year, month, 0) は「month 月の 0 日」＝前月末日 → month 月の日数。
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return { rangeStart: `${year}-${pad2(month)}-01`, rangeEnd: `${year}-${pad2(month)}-${pad2(lastDay)}` };
+  return { rangeStart: `${year}-${pad2(month)}-01`, rangeEnd: monthEnd(year, month) };
+}
+
+// 過去3ヶ月（screen.md 4.1）。periodKey は末尾の月（YYYY-MM）で、その月を含む直近3ヶ月
+// （末尾月とその前2ヶ月）を範囲にする。年跨ぎ（例: 2026-02 → 2025-12〜2026-02）も Date.UTC の
+// 月インデックス正規化で扱える。
+function quarterlyRange(periodKey: string): { rangeStart: string; rangeEnd: string } {
+  const m = MONTHLY_KEY.exec(periodKey);
+  if (!m) {
+    throw new ApiError(400, 'invalid-argument', 'periodKey は "YYYY-MM"（例: 2026-07）形式で指定してください。');
+  }
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  // 開始月＝末尾月の2ヶ月前。month は1始まりなので月インデックスは month-1、そこから2引く。
+  const start = new Date(Date.UTC(year, month - 1 - 2, 1));
+  const rangeStart = `${start.getUTCFullYear()}-${pad2(start.getUTCMonth() + 1)}-01`;
+  return { rangeStart, rangeEnd: monthEnd(year, month) };
 }
 
 export function periodRange(type: InsightType, periodKey: string): { rangeStart: string; rangeEnd: string } {
-  return type === 'weekly' ? weeklyRange(periodKey) : monthlyRange(periodKey);
+  switch (type) {
+    case 'weekly':
+      return weeklyRange(periodKey);
+    case 'monthly':
+      return monthlyRange(periodKey);
+    case 'quarterly':
+      return quarterlyRange(periodKey);
+  }
 }
 
 // ---- 集計 ----
@@ -165,8 +195,8 @@ export async function handleGenerateInsight(
   data: Record<string, unknown>,
 ): Promise<InsightDoc> {
   const type = data.type;
-  if (type !== 'weekly' && type !== 'monthly') {
-    throw new ApiError(400, 'invalid-argument', 'type は weekly か monthly を指定してください。');
+  if (type !== 'weekly' && type !== 'monthly' && type !== 'quarterly') {
+    throw new ApiError(400, 'invalid-argument', 'type は weekly / monthly / quarterly を指定してください。');
   }
   const periodKey = data.periodKey;
   if (typeof periodKey !== 'string' || periodKey.length === 0) {

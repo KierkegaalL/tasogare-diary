@@ -253,6 +253,35 @@ describe('getInsight', () => {
     });
   });
 
+  it('type=quarterly のドキュメントもパースして返す（キャッシュが機能する）', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        fields: {
+          type: { stringValue: 'quarterly' },
+          periodKey: { stringValue: '2026-07' },
+          rangeStart: { stringValue: '2026-05-01' },
+          rangeEnd: { stringValue: '2026-07-31' },
+          moodDistribution: {
+            mapValue: { fields: { calm: { integerValue: '50' }, tender: { integerValue: '30' }, heavy: { integerValue: '20' } } },
+          },
+          topWords: { arrayValue: { values: [] } },
+          narrative: { stringValue: '過去3ヶ月は…' },
+          generatedAt: { timestampValue: '2026-08-01T00:00:00.000Z' },
+          schemaVersion: { integerValue: '1' },
+        },
+      }),
+    });
+
+    expect(await getInsight(ENV, 'u1', 'quarterly_2026-07')).toMatchObject({
+      type: 'quarterly',
+      periodKey: '2026-07',
+      rangeStart: '2026-05-01',
+      rangeEnd: '2026-07-31',
+    });
+  });
+
   it('必須フィールド欠落は null（再生成させる）', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
