@@ -110,6 +110,8 @@ erDiagram
 | `updatedAt` | timestamp | ✓ | 更新（保存後の調整で更新） |
 | `schemaVersion` | number | ✓ |  |
 
+> **実装メモ（Phase4・実装済み）**: `adjustments`/`source` は `PreviewScreen`（`src/screens/diary/preview/PreviewScreen.tsx`）が保存時に構築する。`source.model`/`promptVersion` は `generateDiary`/`adjustDiary`（[api-contract.md](api-contract.md) 3.2/3.3）のレスポンスをそのまま使い、`adjustments` は「たしかめる」画面で適用した `instruction` を画面内でのみ追跡（保存前に離脱すると下書きごとリセット）。未生成のまま保存されることはない設計のため `source` は必須で保存するが、旧データ（本フィールド追加前に保存されたエントリ）との互換のため型は任意（`?`）のまま。
+
 - **entryId（案）**: 自動ID（推奨）。`date` は別フィールドで保持し重複を許容（**U-11（決定）: 1日1件**。UI・要件上は1日1件に制約するが、将来の緩和に備えスキーマ自体は複数許容のまま保持する意図的な設計判断、第10章参照）。
   - 案B: `entryId = date`（1日1件を強制）。UI 前提には合うが、複数許容へ広げにくい。→ 自動ID＋`date` フィールドを推奨。
 

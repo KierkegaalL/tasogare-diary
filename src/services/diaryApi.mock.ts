@@ -84,7 +84,7 @@ export async function generateDiary(req: GenerateDiaryRequest): Promise<Generate
   if (moodWord) segments.push(`${moodWord}気持ちの一日だった`);
 
   const bodyText = segments.length > 0 ? `${segments.join('。')}。` : '静かな一日だった。';
-  return { bodyText, mood: estimateMood(req.words), promptVersion: 'diary-v1-mock' };
+  return { bodyText, mood: estimateMood(req.words), promptVersion: 'diary-v1-mock', model: 'mock' };
 }
 
 // モック: 本文を調整・再生成する（api-contract.md 3.3）。mood は変更しない（呼び出し側で維持）。
@@ -106,7 +106,7 @@ export async function adjustDiary(req: AdjustDiaryRequest): Promise<AdjustDiaryR
       bodyText = `${trimmed}。ふとした時間に、その感覚を思い返していた。`;
       break;
   }
-  return { bodyText, mood: null, promptVersion: 'adjust-v1-mock' };
+  return { bodyText, mood: null, promptVersion: 'adjust-v1-mock', model: 'mock' };
 }
 
 // 寄り添い応答の候補（診断・断定はしない: constraints.md / api-contract.md 3.4）。

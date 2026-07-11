@@ -40,6 +40,7 @@ describe('diaryApi.generateDiary (mock)', () => {
     expect(res.bodyText).toContain('カフェ');
     expect(res.mood).toBe('tender');
     expect(res.promptVersion).toBe('diary-v1-mock');
+    expect(res.model).toBe('mock');
   });
 
   it('語が無い場合でも本文を返し、mood は null', async () => {
@@ -55,6 +56,7 @@ describe('diaryApi.adjustDiary (mock)', () => {
   it('short は最初の一文に短縮する', async () => {
     const res = await adjustDiary({ bodyText: base, instruction: 'shorter', locale: 'ja' });
     expect(res.bodyText).toBe('今日はカフェで過ごした。');
+    expect(res.model).toBe('mock');
   });
 
   it('positive は前向きな一文を加える', async () => {
