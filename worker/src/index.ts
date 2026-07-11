@@ -4,6 +4,7 @@ import type { LlmHistoryEntry, LlmProvider } from './llm';
 import type { Env } from './env';
 import { handleDeleteAccount } from './account';
 import { handleGenerateInsight } from './insight';
+import { getEntry } from './firestore';
 import { handleCreatePairingToken, handleVerifyPairingToken } from './pairing';
 import {
   PROMPT_VERSION,
@@ -220,16 +221,32 @@ export async function handleAdjustDiary(llm: LlmProvider, data: Record<string, u
 // ==========================================================================
 // 3.4 chat — AI対話
 // ==========================================================================
-async function handleChat(llm: LlmProvider, data: Record<string, unknown>) {
+// テストのため export（insight.ts の handleGenerateInsight と同様の方針）。
+export async function handleChat(env: Env, llm: LlmProvider, uid: string, data: Record<string, unknown>) {
   const message = requireString(data.message, 'message');
   const rawHistory = Array.isArray(data.history) ? data.history : [];
   const history = toLlmHistory(rawHistory as { role: ChatRole; text: string }[]);
 
-  // 注: 当該エントリ本文・過去要約のサーバ補完（api-contract.md 3.4 備考）は将来対応。
-  // 現段階はクライアントから渡る直近履歴＋メッセージのみを最小送信する（第8章）。
+  // 当該エントリ本文のサーバ側文脈補完（api-contract.md 3.4 備考）。
+  // クライアント履歴（直近 N 往復）だけに頼ると、対話が長くなり履歴が切り詰められた際に
+  // この日の感情・本文という土台が失われるため、entryId から都度サーバ側で補う。
+  // entryId 不正・エントリ削除済み等（getEntry が null）は文脈補完なしにフォールバックする
+  // （必須情報ではないため、取得失敗で対話自体を止めない）。過去の他エントリの要約は含めない
+  // （最小送信の原則、第8章）。
+  const entryId = typeof data.entryId === 'string' ? data.entryId : undefined;
+  const entry = entryId
+    ? await getEntry(env, uid, entryId).catch((err: unknown) => {
+        console.warn('getEntry failed, falling back', (err as Error)?.name);
+        return null;
+      })
+    : null;
+  const system = entry
+    ? `${SYSTEM_CHAT}\n\nこの日の記録: 感情=${entry.mood ?? '不明'}／本文「${entry.bodyText}」`
+    : SYSTEM_CHAT;
+
   const reply = await llm.callText({
     purpose: 'interactive',
-    system: SYSTEM_CHAT,
+    system,
     history,
     userText: message,
     maxTokens: 512,
@@ -279,7 +296,11 @@ const ROUTES: Record<string, Route> = {
   '/suggestWords': llmRoute(handleSuggestWords),
   '/generateDiary': llmRoute(handleGenerateDiary),
   '/adjustDiary': llmRoute(handleAdjustDiary),
-  '/chat': llmRoute(handleChat),
+  // chat は文脈補完（getEntry）のため env・uid も使う（generateInsight と同様の理由）。
+  '/chat': {
+    requireAuth: true,
+    handler: (env, uid, data) => handleChat(env, getLlmProvider(env), uid as string, data),
+  },
   '/chatOpening': llmRoute(handleChatOpening),
   // 週次/月次まとめ。LLM と uid（Firestore の集計・キャッシュ）の両方を使う。
   '/generateInsight': {

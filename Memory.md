@@ -1,6 +1,6 @@
 # Memory — たそがれ日記 プロジェクト引き継ぎドキュメント
 
-最終更新: 2026-07-11（PR #42 反映）
+最終更新: 2026-07-11（コミット1a17a92反映。docs記載済み低優先度タスク4件すべて完了。push・PR作成待ち）
 
 > このファイルは ClaudeCode がセッションをまたいで状況を引き継ぐための**状況記録ドキュメント**。ルール本体（振る舞いの指示）は [CLAUDE.md](CLAUDE.md) と `.claude/rules/` を正とし、本ファイルはそれらを前提にした**現在地のスナップショット**を保持する。矛盾があれば CLAUDE.md / `.claude/rules/` が優先。
 >
@@ -109,12 +109,13 @@ tasogare-diary/
 - Firebase 匿名認証・Firestore永続化（Phase2）、下書きのオフライン永続化（draftStore）
 - Phase2 AI連携（Cloudflare Worker + Gemini、LLMプロバイダ抽象化）
 - Phase3 QRペアリング（`createPairingToken`/`verifyPairingToken`、Firebaseサービスアカウント自前JWT署名）
-- generateInsight（週次/月次/**過去3ヶ月**まとめ・オンデマンド生成+キャッシュ）
-- deleteAccount（Worker側API実装・実疎通確認済み。**UI導線は未実装**＝残タスク）
+- generateInsight（週次/月次/**過去3ヶ月**まとめ・オンデマンド生成+キャッシュ。過去3ヶ月タブは週別感情推移グラフ＝`weeklyBreakdown`も実装済み＝コミット1a17a92）
+- deleteAccount（Worker側API実装・実疎通確認済み。UI導線も実装済み＝コミット6b21e88）
 - Web ダッシュボード一式（`web/`）: 振り返り画面・日記本文閲覧（`/entries`・検索/無限スクロール）・カメラQRライブ読取・Apple/Googleサインイン代替（Web側）・Firebase Hostingデプロイ設定
 - モバイル: 匿名→Apple/Googleリンク昇格ロジック（`linkWithCredential`・`AuthLinkError`写像・`WebConnectScreen`導線）
 - モバイル: **ネイティブ資格情報取得の実装**（`nativeCredentialSource.ts`＝中核ロジック・`nativeCredentialSourceInstall.ts`＝実モジュール束ね。Apple: `expo-apple-authentication`+`expo-crypto`のnonceフロー、Google: `@react-native-google-signin`）。**ただし起動エントリでの `installNativeCredentialSource()` 呼び出し配線は未着手**（開発ビルド前提のため意図的に後続）
 
+- **設定画面のアカウント削除UI**（コミット6b21e88、未push）: `DeleteAccountSection`を追加。画面内2段階確認→`deleteAccount()`→`entriesStore.teardown()`→`authStore.signOut()`（新匿名セッション確立）→Home遷移。reviewerが「旧uidデータの一瞬残留」「signOut失敗をdeleteAccount失敗と誤表示」の重大指摘2件を発見→修正（`authStore.signOut()`をrethrow化、entriesStore即時クリア）
 - **設定画面「バックアップする」行の実装**（PR #42）: ユーザーへ方針確認のうえ、WebConnect画面（既存のAccountLinkSection）へ遷移する行を追加。実装過程で「連携不可環境（既定のExpo Go等）で押しても何も起きない」バグをreviewerが発見→`useLinkableAccountKinds`（新規フック）でWebConnectScreenと判定を共有し、連携可能な場合のみ行を表示するよう修正
 - **過去日記一覧の仮想化**（PR #41）: `CalendarScreen`のリストモードを`ScrollView`+`.map()`から`SectionList`（`VirtualizedList`ベース）へ書き換え、constraints.md「リスト表示は仮想化」要件を充足。`EntryRow`を`React.memo`化・`onOpen`を`useCallback`で安定化
 - **entries.source/adjustments の追跡実装**（PR #40）: `entries.source`（生成モデル/プロンプト版）・`entries.adjustments`（適用調整の履歴）を`DiaryEntry`型・保存処理に実装。worker側`handleGenerateDiary`/`handleAdjustDiary`にモデルID返却を追加、保存ロジックは`buildDiaryEntry.ts`へ純粋関数として切り出し。実装過程で「↻選び直す」時に`PreviewScreen`が再マウントされず古い調整結果が持ち越されるバグを発見・修正（React公式のレンダー中state調整パターン）。`docs/api-contract.md`のモデル名記述漏れ（`claude-sonnet-5`残存）も併せて修正
@@ -124,16 +125,17 @@ tasogare-diary/
 
 ### 残タスク（2026-07-11 実装×設計書 整合チェックで確定。新規発見分は全てPR #40〜#42で解消）
 
-**docsに明記済みの正式な残タスク（現状: 齟齬なし・未着手のまま）**
-- 【低優先度】設定画面のアカウント削除UI（`src/services/account.ts` にAPI層のみ、導線なし）
-- 【低優先度】Gemini再試行の最大待ち時間の再検討（現状: 最大約50.6秒、運用判断待ち）
-- 【低優先度】generateInsightの定期事前生成（Cron Triggers）未実装（全ユーザー列挙のコスト・権限設計が課題。オンデマンド+キャッシュで当面代替）
-- 【低優先度】chatのサーバ側文脈補完（現状クライアント履歴のみ送信）
-- 【低優先度】ネイティブ資格情報取得の運用配線（`App.tsx`等の起動エントリで`installNativeCredentialSource()`を呼ぶ）・実機疎通確認（開発ビルド必須）
-- 【低優先度】「過去3ヶ月」タブの感情推移グラフが単一積み上げバーのまま（週別内訳は未実装）
-- 【低優先度】Firestoreオフライン永続化（RN制約でメモリキャッシュ中心。`@react-native-firebase`ネイティブ移行が本格対応。当面はdraftStoreで下書き継続を担保）
+**docsに明記済みの正式な残タスク**（2026-07-11、ユーザー承認のもと実現可能な4件に着手中。設計判断/開発ビルドが必要な3件は次回以降へ）
+- [x] 設定画面のアカウント削除UI → **完了**（コミット6b21e88）
+- [x] Gemini再試行の最大待ち時間の再検討 → **完了**（コミット9298b02。`REQUEST_TIMEOUT_MS`を`Record<LlmPurpose, number>`化し用途別に分離：interactive=15秒/generate=20秒、最大待ち時間はinteractive≒30.6秒・generate≒40.6秒。reviewer指摘＝共通タイムアウトだとgenerate側のdeadline-exceeded率が上がるリスクを踏まえた設計）
+- [x] chatのサーバ側文脈補完 → **完了（一部）**（コミット658a1d0。`entryId`から`getEntry`＝`worker/src/firestore.ts`で当日の`mood`/`bodyText`のみ`mask.fieldPaths`で取得し`system`プロンプトへ注入。`history`切り詰めの影響を受けない。取得失敗・entryId不正時は文脈補完なしにフォールバックし対話継続。関連する過去エントリの**要約**補完は未実装のまま＝`docs/api-contract.md`第10章に明記）
+- [x] 「過去3ヶ月」タブの感情推移グラフが単一積み上げバーのまま（週別内訳は未実装）→ **完了**（コミット1a17a92。`worker/src/insight.ts`に`aggregateWeekly`を追加、`type=quarterly`のみISO週（月曜始まり）ごとの百分率`weeklyBreakdown`を算出しキャッシュ（`InsightDoc`）に含める。エントリの無い週も0件として含め推移の空白を可視化。weekly/monthlyタブは期間が短いため従来どおり単一バーのまま。Webは`WeeklyMoodChart`（新規）で週別バーを表示、`MoodChart`は単一バー用に維持。**実データでのブラウザ確認は未実施**＝web/.env.localが未設定でFirebase未接続のため。型チェック・ユニットテスト（週境界を実際にnodeで計算し検証済み）・reviewerチェックは通過済み）
+- 【次回以降・設計判断/開発ビルドが必要】generateInsightの定期事前生成（Cron Triggers）未実装（全ユーザー列挙のコスト・権限設計が要検討）
+- 【次回以降・開発ビルド必須】ネイティブ資格情報取得の運用配線（`App.tsx`等の起動エントリで`installNativeCredentialSource()`を呼ぶ）・実機疎通確認（Expo Goを壊さない配線方法の検討が必要）
+- 【次回以降・大規模ネイティブ移行】Firestoreオフライン永続化（RN制約でメモリキャッシュ中心。`@react-native-firebase`ネイティブ移行が本格対応。当面はdraftStoreで下書き継続を担保）
 
 **軽微な所見（任意対応・ブロッカーではない）**
 - `PreviewScreen.tsx`の`wordsKey`算出式と`useDiaryGeneration.ts`の`key`算出式が同一ロジックを重複実装（reviewer所見、PR #40）。将来の変更漏れリスクはあるが現状は不具合なし。共通ユーティリティへの切り出しは任意
+- `handleChat`（`getEntry`でサーバ側再取得・uidスコープ強制）と`handleChatOpening`（`data.mood`/`data.bodyText`をクライアントから直接信頼）で、同じ「その日の記録」の取得経路が非対称（reviewer所見、コミット658a1d0）。クライアントは自分の日記データしか持てないため実害は小さいが、将来`chatOpening`側も`entryId`起点のサーバ側取得へ揃える一貫性リファクタの余地あり
 
-2026-07-11の整合チェックで発見した新規タスクは全て解消済み（PR #40〜#42）。残るは docs記載済みの低優先度残タスク群のみ（次回セッションはユーザーの指示待ち）。
+2026-07-11の整合チェックで発見した新規タスクは全て解消済み（PR #40〜#42）。docs記載済みの低優先度残タスク4件のうち実現可能な4件全てが完了（`chore/remaining-low-priority-tasks`ブランチ）。残るは設計判断/開発ビルドが必要な3件のみ（次回セッションはユーザーの指示待ち）。

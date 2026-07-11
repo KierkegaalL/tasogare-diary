@@ -156,7 +156,7 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 ```json
 { "reply": "それはよかったです。1ヶ月前も同じような日に「疲れた」と書いていましたよ。", "promptVersion": "chat-v1" }
 ```
-- 備考: サーバは必要に応じ当該エントリ本文・関連する過去の**要約**のみを補完（全件送信しない）。`history` は直近数往復に限定する（最小送信、第8章）。会話履歴の保存は U-05（既定=保存、[data.md](data.md) 3.3）。`history` の `ai`/`me` は `toLlmHistory`（`worker/src/index.ts`）で `assistant`/`user` に写像後、プロバイダ側（Gemini は `toGeminiRole`）が `model`/`user` に再写像する（第2章「ロール対応」）。`promptVersion` はテレメトリ用の返却であり、`messages`（[data.md](data.md) 3.3）には保存しない（保存する場合は data.md 側にフィールド追補が必要）。
+- 備考: サーバは必要に応じ当該エントリ本文・関連する過去の**要約**のみを補完（全件送信しない）。`history` は直近数往復に限定する（最小送信、第8章）。会話履歴の保存は U-05（既定=保存、[data.md](data.md) 3.3）。`history` の `ai`/`me` は `toLlmHistory`（`worker/src/index.ts`）で `assistant`/`user` に写像後、プロバイダ側（Gemini は `toGeminiRole`）が `model`/`user` に再写像する（第2章「ロール対応」）。`promptVersion` はテレメトリ用の返却であり、`messages`（[data.md](data.md) 3.3）には保存しない（保存する場合は data.md 側にフィールド追補が必要）。**当該エントリ本文の補完は実装済み**（`worker/src/index.ts` の `handleChat`。`entryId` から `getEntry`＝`worker/src/firestore.ts`、`mask.fieldPaths` で `mood`/`bodyText` のみ取得し `system` プロンプトへ注入。対話が長くなり `history` が切り詰められても当日の文脈が失われないようにする狙い。取得失敗・`entryId` 不正時は文脈補完なしにフォールバックし対話自体は継続する）。**関連する過去エントリの要約補完は未実装**（§10参照）。
 - **初回問いかけ（空対話時）**: 履歴が空の対話を開いた際、その日のエントリ（感情・本文）を文脈に AI の最初の問いかけを生成する。`chat` の特殊系（`message` 省略）または専用の opening 呼び出しとして扱う（クライアントのモックは `chatOpening`）。応答形は `chat` と同じ `{ reply, promptVersion }`。
 
 ### 3.5 `generateInsight` — 週次/月次まとめ
@@ -185,9 +185,26 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
   "schemaVersion": 1
 }
 ```
+  - `type: "quarterly"` の場合は上記に加えて `weeklyBreakdown` を含む（詳細は本節末尾の備考）:
+```json
+{
+  "type": "quarterly",
+  "periodKey": "2026-07",
+  "rangeStart": "2026-05-01",
+  "rangeEnd": "2026-07-31",
+  "moodDistribution": { "calm": 40, "tender": 35, "heavy": 25 },
+  "weeklyBreakdown": [ { "weekStart": "2026-06-29", "distribution": { "calm": 50, "tender": 30, "heavy": 20 } } ],
+  "topWords": [ { "word": "疲れた", "count": 12 }, { "word": "カフェ", "count": 9 } ],
+  "narrative": "この3ヶ月は「疲れた」という言葉が目立ちました。…",
+  "generatedAt": "2026-08-01T00:00:00Z",
+  "source": { "model": "gemini-3.5-flash" },
+  "schemaVersion": 1
+}
+```
 - 備考: 集計は Firestore の `entries` からサーバが算出（クライアントは算出しない）。`weekly` はモバイル⑥にも表示、`monthly` は Web 限定。保存時にサーバが `periodId`（`type_periodKey`、[data.md](data.md) 3.5）と `schemaVersion` を付与する。
 - **`moodDistribution` は百分率**（整数・合計100）。`mood` が null のエントリは母数から除外し、1件も `mood` が無ければ全て 0 を返す。端数は最大剰余法で配分する。
 - **`topWords` は最大10件**。同一エントリ内の重複語は1回として数え、件数降順・同数は語の昇順で安定させる。
+- **`weeklyBreakdown` は `type=quarterly` のみ**返す（`weekly`/`monthly` には含まれない）。期間内の ISO 週（月曜始まり）を過不足なく列挙し、週ごとに `moodDistribution` と同じ百分率計算を行う。エントリが1件も無い週も0件の週として含める（`worker/src/insight.ts` の `aggregateWeekly`）。Web ダッシュボード（[screen.md](screen.md) 4.1）の「感情の推移（週ごと）」カードで使用（`.mood-chart` を週単位で並べた積み上げバー）。LLM へは渡さない（集計値のみ送信する原則、第8章）。
 - **キャッシュ**: `users/{uid}/insights/{periodId}` を参照し、**期間が確定していれば永続的に再利用**、それ以外は生成から1時間で作り直す。`generatedAt` が壊れている場合も再生成する。
   - 確定判定は「`rangeEnd` が UTC の今日より**1日以上前**」（`worker/src/insight.ts` の `PERIOD_CLOSE_GRACE_MS`）。`entries.date` は端末ローカル日付で、Worker 側は UTC しか持たないため、UTC より遅れたタイムゾーンの端末が期間最終日にいる間に確定扱いしてしまわないよう猶予を置く。猶予中は上記1時間 TTL で再生成される。
 - **エラー**: 期間内にエントリが1件も無い場合は `failed-precondition`（LLM は呼ばない）。
@@ -244,8 +261,8 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 ## 7. レート制限・リトライ・タイムアウト
 
 - **クライアント再試行**: `unavailable`/`deadline-exceeded`/`resource-exhausted` のみ指数バックオフで数回。入力・下書きは保持。
-- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウト（25秒/試行）を設定。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm/gemini.ts`）。
-- **サーバ側リトライ**: Gemini の 5xx（過負荷。生ステータスに関わらず `unavailable`/503 に正規化される）は初回失敗時に600ms待って**1回だけ**自動リトライする（合計最大2試行）。429（レート制限）・400/401/403、およびクライアント側タイムアウト（`AbortController` 由来の `deadline-exceeded`/504・ネットワーク断）はリトライ対象外（待っても状況が変わりにくいため）。**理論上の最大待ち時間**は 1試行あたりのタイムアウト25秒×合計2試行＋リトライ待機0.6秒 ≒ 50.6秒（実運用では5xx応答自体は速いため通常はここまで伸びない）。
+- **サーバ**: Gemini 呼び出しに `generationConfig.maxOutputTokens` の上限とタイムアウトを設定。**用途別**（第1.3節）に interactive=15秒/試行、generate=20秒/試行（`generate` は品質優先モデルで応答がやや長くなりうるため、interactive より余裕を残す）。Gemini 側レート超過は `resource-exhausted` に写像（`worker/src/llm/gemini.ts`）。
+- **サーバ側リトライ**: Gemini の 5xx（過負荷。生ステータスに関わらず `unavailable`/503 に正規化される）は初回失敗時に600ms待って**1回だけ**自動リトライする（合計最大2試行）。429（レート制限）・400/401/403、およびクライアント側タイムアウト（`AbortController` 由来の `deadline-exceeded`/504・ネットワーク断）はリトライ対象外（待っても状況が変わりにくいため）。**理論上の最大待ち時間**は interactive ≒ 15秒×2試行＋0.6秒 ≒ 30.6秒、generate ≒ 20秒×2試行＋0.6秒 ≒ 40.6秒（実運用では5xx応答自体は速いため通常はここまで伸びない）。**2026-07-11再検討**: 旧・両用途共通25秒/試行（最大約50.6秒）は Gemini flash系モデルの通常応答（数秒程度）に対して過大でモバイルUXとして長すぎたため、用途別に短縮した（interactive: 約30.6秒・約40%減、generate: 約40.6秒・約20%減。両用途で同一タイムアウトを共有すると応答が長くなりがちな generate 側だけ deadline-exceeded 率が上がるリスクがあるため分離）。
 - **多重防止**: 保存・削除・ペアリング消費はサーバ側で状態（`consumed` 等）を検証し二重実行を防ぐ。
 
 ---
@@ -283,9 +300,9 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
   - 対象コレクション ID は既知スキーマ（`entries`/`messages`/`wordStats`/`insights`。3.2〜3.5）を用いる。`users/{uid}` 直下に未知のコレクションがあれば `listCollectionIds` で検出して削除対象に加える（さらに深い階層の未知コレクションは検出できない。スキーマ変更時は上記の定数も更新すること）。
   - `pairings` は `uid` の `runQuery`（`select: __name__`）で該当文書のみ削除。
   - Auth ユーザー削除は Identity Toolkit Admin API（`accounts:delete`）を呼ぶため、**`datastore` とは別に `identitytoolkit` スコープのアクセストークン**を取得する（`worker/src/serviceAccount.ts` の `getIdentityToolkitAccessToken`。トークンはスコープごとにキャッシュ）。
-  - 削除順序と冪等性は 6.1 を参照。**設定画面の削除導線 UI は未実装**（[screen.md](screen.md) 3.9 で「将来」の扱い。クライアントの API 層 `src/services/account.ts` のみ用意）。
+  - 削除順序と冪等性は 6.1 を参照。**設定画面の削除導線 UI は実装済み**（`src/screens/settings/SettingsScreen.tsx` の `DeleteAccountSection`、[screen.md](screen.md) 3.9）。画面内の2段階確認を経て呼び出す。
 - **Web ダッシュボード（実装済み・Phase4）**: `web/`（Next.js・静的エクスポート／Firebase Hosting 前提）。QRペアリング照合でサインイン（5.2）し、`generateInsight`（3.5）から週次/月次まとめを取得して感情推移・よく使う言葉・AIまとめを表示する（閲覧専用・U-09）。Worker の API は既存のものを Web クライアント（`web/src/lib/worker.ts`）から呼ぶだけで、Worker 側の追加実装は不要。配色・型は `shared/`（`shared/theme/tokens.ts`・`shared/types/*`）をモバイルと共有。日記本文の閲覧（`/entries`・Firestore 直読）・Hosting デプロイ設定（`firebase.json`/`.firebaserc`）・カメラ QR ライブ読取（`/connect`）・`/entries` の検索/無限スクロール・Apple/Google サインイン代替（`/connect`・`web/src/lib/oauth.ts`）・「過去3ヶ月」タブ（`generateInsight` の `type: 'quarterly'`・`worker/src/insight.ts`）も実装済み。**モバイル側の匿名アカウント→Apple/Google リンク昇格ロジック・ネイティブ資格情報取得ともに実装済み**（`src/services/auth`：`firebaseAuthProvider.linkWith`＝`linkWithCredential`／`authStore.linkAccount`／`WebConnectScreen` の導線／`nativeCredentialSource.ts`＝Apple・Google 資格情報取得の中核＋`nativeCredentialSourceInstall.ts` の `installNativeCredentialSource()`。エラーは `AuthLinkError` へ写像）。**有効化条件（後続の運用作業）**: ネイティブ資格情報取得の有効化には**開発ビルド**が必要（`expo-apple-authentication`／`@react-native-google-signin` 等のネイティブモジュール要）。開発ビルドの起動エントリで `installNativeCredentialSource()` を呼び、Google は `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` を設定、Firebase Console でプロバイダ有効化する。Expo Go 既定パスは同関数を読み込まないため `canLinkAccount` false で導線非表示（[web/README.md](../web/README.md)・[architecture.md](architecture.md) 第6章）。
-- **未対応（将来）**: `chat` のサーバ側文脈補完（当該エントリ本文・過去要約）は現状クライアントの直近履歴のみを送信。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
+- **`chat` のサーバ側文脈補完（実装済み・一部）**: 当該エントリの `mood`/`bodyText` は `entryId` からサーバ側（`getEntry`）で都度補完し、`system` プロンプトへ注入する（3.4節参照。クライアントの `history` 切り詰めに影響されない）。**未対応（将来）**: 関連する過去エントリの**要約**補完（他日の傾向等）は未実装。ストリーミングは未採用（非ストリーミング＋`maxOutputTokens` 上限）。
 
 ### 未確定
 - **U-12（改定）**: モデルは当初 Claude（連想/対話/調整=Haiku 4.5、生成/まとめ=Sonnet 5）を決定していたが、無料運用のため **Gemini（連想/対話/調整=`gemini-3.1-flash-lite`、生成/まとめ=`gemini-3.5-flash`）に変更**（環境変数で差し替え可）。コスト上限（将来 Anthropic 等へ戻す場合）は運用で監視。

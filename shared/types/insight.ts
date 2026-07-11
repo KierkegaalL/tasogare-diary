@@ -14,12 +14,19 @@ export interface TopWord {
   count: number;
 }
 
+export interface WeeklyMoodPoint {
+  weekStart: string; // YYYY-MM-DD（週の月曜）
+  distribution: MoodDistribution;
+}
+
 export interface Insight {
   type: InsightType;
   periodKey: string; // weekly: YYYY-Www / monthly・quarterly: YYYY-MM（quarterly は末尾の月）
   rangeStart: string; // YYYY-MM-DD
   rangeEnd: string; // YYYY-MM-DD
   moodDistribution: MoodDistribution;
+  // quarterly（過去3ヶ月）タブの「感情の推移（週ごと）」用。weekly/monthly には無い（screen.md 4.1）。
+  weeklyBreakdown?: WeeklyMoodPoint[];
   topWords: TopWord[]; // 最大10件・件数降順
   narrative: string;
   generatedAt: string; // ISO8601

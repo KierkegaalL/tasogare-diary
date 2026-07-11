@@ -18,7 +18,17 @@ export interface GeminiEnv {
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // Gemini 呼び出しのタイムアウト（api-contract.md 第7章: 上限を設けて deadline-exceeded を制御）。
-const REQUEST_TIMEOUT_MS = 25_000;
+// 2026-07-11 再検討（Memory.md残タスク）: 旧・両用途共通25秒は Gemini flash 系モデルの通常応答
+// （数秒程度）に対して過大で、2試行合計の理論上最大待ち時間が約50.6秒とモバイルUXとして
+// 長すぎた。用途別モデル（第1.3節）の性質に合わせ、用途別に短縮する（reviewer指摘: interactive/
+// generateで同一タイムアウトを共有すると、応答が長くなりがちなgenerate側だけ deadline-exceeded
+// 率が上がるリスクがあるため分離）。
+// - interactive（連想語提案/調整/対話。低遅延優先）: 15秒×2試行+0.6秒 ≒ 30.6秒（旧50.6秒から約40%減）
+// - generate（日記文生成/まとめ。品質優先で応答がやや長くなりうる）: 20秒×2試行+0.6秒 ≒ 40.6秒（旧50.6秒から約20%減）
+const REQUEST_TIMEOUT_MS: Record<LlmPurpose, number> = {
+  interactive: 15_000,
+  generate: 20_000,
+};
 
 // Gemini 側の 5xx（過負荷）に対する再試行回数・待機時間。
 const MAX_GEMINI_ATTEMPTS = 2;
@@ -123,7 +133,7 @@ async function callGemini(env: GeminiEnv, opts: LlmCallOptions): Promise<GeminiR
   // ネットワーク断。mapGeminiError を経由しない）は待っても状況が変わりにくいため対象外。
   for (let attempt = 1; attempt <= MAX_GEMINI_ATTEMPTS; attempt++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS[opts.purpose]);
 
     let response: Response;
     try {

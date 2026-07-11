@@ -13,6 +13,7 @@ import { WorkerError } from '@/lib/worker';
 import { currentPeriodKey, PERIOD_LABELS } from '@/lib/period';
 import { DashCard } from '@/components/DashCard';
 import { MoodChart } from '@/components/MoodChart';
+import { WeeklyMoodChart } from '@/components/WeeklyMoodChart';
 import { WordRank } from '@/components/WordRank';
 
 const PERIODS: InsightType[] = ['weekly', 'monthly', 'quarterly'];
@@ -142,8 +143,12 @@ function DashboardBody({
           {insight.narrative}
         </p>
       </DashCard>
-      <DashCard title="感情の推移">
-        <MoodChart distribution={insight.moodDistribution} />
+      <DashCard title={insight.weeklyBreakdown ? '感情の推移（週ごと）' : '感情の推移'}>
+        {insight.weeklyBreakdown ? (
+          <WeeklyMoodChart weeks={insight.weeklyBreakdown} />
+        ) : (
+          <MoodChart distribution={insight.moodDistribution} />
+        )}
       </DashCard>
       <DashCard title="よく使う言葉">
         <WordRank words={insight.topWords} />

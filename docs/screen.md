@@ -134,11 +134,11 @@ graph LR
 - **遷移**: 戻る→前画面（Calendar/Home）。
 
 ### 3.9 設定（`settings`）
-- **目的**: Web連携・バックアップ等の入口。
-- **要素**: ヘッダー（戻る＋「設定」）／行（`.settings-row`）: 「Webで見る」（`.settings-row-sub`「パソコンから日記を見られるようにする」）／「バックアップする」（「機種変更・削除に備えてアカウントを保存」）。
+- **目的**: Web連携・バックアップ・アカウント削除等の入口。
+- **要素**: ヘッダー（戻る＋「設定」）／行（`.settings-row`）: 「Webで見る」（`.settings-row-sub`「パソコンから日記を見られるようにする」）／「バックアップする」（「機種変更・削除に備えてアカウントを保存」）／「アカウントを削除する」（「日記・対話・連携情報がすべて削除されます」）。
 - **遷移**: 「Webで見る」→WebConnect。バックアップ→**Apple/Google アカウント連携で担保（U-13決定）**。
-- **実装メモ（実装済み）**: `src/screens/settings/SettingsScreen.tsx`。連携UI（Apple/Google リンク昇格。`AccountLinkSection`）は WebConnect 画面側に既に実装済みのため重複実装を避け、**「バックアップする」行も WebConnect へ遷移する**（U-13決定の「画面上のアクションは再認証確認程度」を、独立した確認UIではなく既存の連携導線への遷移で満たす設計判断）。**「バックアップする」行は連携が実際に可能な場合のみ表示する**（`useLinkableAccountKinds`＝`src/hooks/useAccountLink.ts`。匿名アカウントかつネイティブ資格情報ソース導入済みの開発ビルドが条件、`environments.md`）。既に恒久化済み、または既定の Expo Go 等で導入前の環境では行自体を出さない（遷移先で `AccountLinkSection` が何も描画しない「押しても何も起きない」導線を避けるため。WebConnect 側の「未対応の空UIを出さない」原則と統一）。
-- **将来**: アカウント削除・reduced-motion 等の設定項目を追加（データ削除は [data.md](data.md) 第7章）。
+- **実装メモ（実装済み）**: `src/screens/settings/SettingsScreen.tsx`。連携UI（Apple/Google リンク昇格。`AccountLinkSection`）は WebConnect 画面側に既に実装済みのため重複実装を避け、**「バックアップする」行も WebConnect へ遷移する**（U-13決定の「画面上のアクションは再認証確認程度」を、独立した確認UIではなく既存の連携導線への遷移で満たす設計判断）。**「バックアップする」行は連携が実際に可能な場合のみ表示する**（`useLinkableAccountKinds`＝`src/hooks/useAccountLink.ts`。匿名アカウントかつネイティブ資格情報ソース導入済みの開発ビルドが条件、`environments.md`）。既に恒久化済み、または既定の Expo Go 等で導入前の環境では行自体を出さない（遷移先で `AccountLinkSection` が何も描画しない「押しても何も起きない」導線を避けるため。WebConnect 側の「未対応の空UIを出さない」原則と統一）。**「アカウントを削除する」行はタップで画面内に確認UI（`.settings-row` の代わりに警告文＋「本当に削除する」／「キャンセル」）を表示する2段階確認**（`DeleteAccountSection`）。確認後の削除は `deleteAccount()`（`src/services/account.ts`）→成功時は `authStore.signOut()`（削除済みセッションをクリアし新しい匿名セッションを確立）→ `MainTabs`/`Home` へ遷移。失敗時は確認UIのままエラー文を表示し再試行できる。**Worker 未設定時（モック運用）は行自体を表示しない**（`isAccountDeletionAvailable`。削除は不可逆なため「削除できたふり」をしない方針）。
+- **将来**: reduced-motion 等の設定項目を追加。
 
 ### 3.10 Webで見る（QR）（`webConnect`）
 - **目的**: PC でダッシュボードを見るためのデバイス連携（QR 表示）。
@@ -157,7 +157,7 @@ graph LR
 - **データ**: `insights`（`monthly` 主、`moodDistribution`/`topWords`/`narrative`）、`wordStats`（[data.md](data.md) 第3.4/3.5節）。生成は Functions（案B）。
 - **状態**: 生成前＝プレースホルダ。データ不足（記録少）＝その旨を表示。読取専用（編集可否 U-09）。
 - **A11y**: グラフに数値/凡例を併記、色のみに依存しない。
-- **実装メモ（Phase4・実装済み）**: `web/src/app/dashboard`。まとめは Worker の `generateInsight`（本文を LLM へ送らない）から取得。期間タブは**今週/今月/過去3ヶ月**を実装（`.mood-chart`＝`MoodChart`／`.word-rank`＝`WordRank`／`.dash-narrative`＝AIまとめ）。**感情推移カードは現状「期間全体の百分率」を1本の積み上げバーで表示**（`generateInsight` が返す `moodDistribution` は期間集計値のため、カード見出しは「感情の推移」とし「（週ごと）」の週別積み上げは後続）。**「過去3ヶ月」タブは実装済み**（`generateInsight` に `type: 'quarterly'` を追加。periodKey は monthly と同じ `YYYY-MM` で末尾の月＝今月を表し、その月を含む直近3ヶ月を集計する＝暦上の四半期ではない。`worker/src/insight.ts` の `quarterlyRange`）。エントリ皆無（`failed-precondition`）は「記録がまだありません」を表示。
+- **実装メモ（Phase4・実装済み）**: `web/src/app/dashboard`。まとめは Worker の `generateInsight`（本文を LLM へ送らない）から取得。期間タブは**今週/今月/過去3ヶ月**を実装（`.mood-chart`＝`MoodChart`／`.word-rank`＝`WordRank`／`.dash-narrative`＝AIまとめ）。**感情推移カードは「過去3ヶ月」タブのみ週別積み上げ**（`.mood-chart` を週ごとに横並びで表示する `WeeklyMoodChart`。カード見出しも「感情の推移（週ごと）」に切替）。`weekly`/`monthly` タブは期間そのものが短い（1週間/1ヶ月）ため従来どおり「期間全体の百分率」を1本の積み上げバー（`MoodChart`）で表示し見出しは「感情の推移」のまま。週別内訳は `generateInsight` が `type: 'quarterly'` の場合のみ返す `weeklyBreakdown`（[api-contract.md](api-contract.md) 3.5・`worker/src/insight.ts` の `aggregateWeekly`）で、ISO週（月曜始まり）ごとの百分率をエントリの無い週も含めて算出する。**「過去3ヶ月」タブは実装済み**（`generateInsight` に `type: 'quarterly'` を追加。periodKey は monthly と同じ `YYYY-MM` で末尾の月＝今月を表し、その月を含む直近3ヶ月を集計する＝暦上の四半期ではない。`worker/src/insight.ts` の `quarterlyRange`）。エントリ皆無（`failed-precondition`）は「記録がまだありません」を表示。
 
 ### 4.2 デバイスをつなぐ（Web）（`connectView`）
 - **目的**: モバイルの QR を PC カメラで読み取り、Web をサインインさせる。

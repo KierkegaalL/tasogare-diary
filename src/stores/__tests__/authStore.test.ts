@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useAuthStore } from '../authStore';
+import { localAuthProvider } from '../../services/auth/localAuthProvider';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -30,6 +31,18 @@ describe('authStore', () => {
     expect(store().user?.uid).toBeDefined();
     // ローカルはサインアウトで新しい匿名 uid になる
     expect(store().user?.uid).not.toBe(firstUid);
+  });
+
+  it('signOut失敗時は例外をrethrowしつつstatusをerrorにする（呼び出し元が成功/失敗を判別できるように）', async () => {
+    // アカウント削除直後の再匿名化失敗を「削除自体が失敗した」と誤表示しないための挙動（reviewer指摘）。
+    await store().initialize();
+    const signOutSpy = jest.spyOn(localAuthProvider, 'signOut').mockRejectedValueOnce(new Error('boom'));
+
+    await expect(store().signOut()).rejects.toThrow('boom');
+    expect(store().status).toBe('error');
+    expect(store().user).toBeNull();
+
+    signOutSpy.mockRestore();
   });
 
   it('linkAccount はローカルプロバイダ（linkWith 非対応）では AuthLinkError(unavailable) を投げ、状態を変えない', async () => {

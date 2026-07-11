@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { aggregate, handleGenerateInsight, isCacheFresh, periodRange } from '../insight';
+import { aggregate, aggregateWeekly, handleGenerateInsight, isCacheFresh, periodRange } from '../insight';
 import type { EntrySummary, InsightDoc } from '../firestore';
 import type { Env } from '../env';
 import type { LlmProvider } from '../llm';
@@ -110,6 +110,39 @@ describe('aggregate', () => {
   it('topWords は最大10件', () => {
     const words = Array.from({ length: 15 }, (_, i) => `w${i}`);
     expect(aggregate([entry('2026-07-01', 'calm', words)]).topWords).toHaveLength(10);
+  });
+});
+
+describe('aggregateWeekly', () => {
+  it('週（月曜始まり）ごとに百分率を集計する', () => {
+    // 2026-05-01(金)は週2026-04-27(月)〜05-03(日)、2026-05-04(月)からは次の週。
+    const entries = [
+      entry('2026-05-01', 'calm', []),
+      entry('2026-05-04', 'tender', []),
+      entry('2026-05-08', 'heavy', []),
+    ];
+    const weeks = aggregateWeekly(entries, '2026-04-27', '2026-05-10');
+    expect(weeks.map((w) => w.weekStart)).toEqual(['2026-04-27', '2026-05-04']);
+    expect(weeks[0].distribution).toEqual({ calm: 100, tender: 0, heavy: 0 });
+    expect(weeks[1].distribution).toEqual({ calm: 0, tender: 50, heavy: 50 });
+  });
+
+  it('エントリが無い週も0件の週として範囲に含める（推移の空白を表す）', () => {
+    const weeks = aggregateWeekly([entry('2026-05-01', 'calm', [])], '2026-04-27', '2026-05-17');
+    expect(weeks.map((w) => w.weekStart)).toEqual(['2026-04-27', '2026-05-04', '2026-05-11']);
+    expect(weeks[1].distribution).toEqual({ calm: 0, tender: 0, heavy: 0 });
+    expect(weeks[2].distribution).toEqual({ calm: 0, tender: 0, heavy: 0 });
+  });
+
+  it('mood が null のエントリは母数から除外する（aggregate と同じ扱い）', () => {
+    const weeks = aggregateWeekly([entry('2026-05-01', null, [])], '2026-04-27', '2026-05-03');
+    expect(weeks).toEqual([{ weekStart: '2026-04-27', distribution: { calm: 0, tender: 0, heavy: 0 } }]);
+  });
+
+  it('年をまたぐ範囲でも週を正しく列挙する', () => {
+    // 2025-12-29(月)・2026-01-05(月)はいずれも月曜＝別の週として2週分列挙される。
+    const weeks = aggregateWeekly([], '2025-12-29', '2026-01-05');
+    expect(weeks.map((w) => w.weekStart)).toEqual(['2025-12-29', '2026-01-05']);
   });
 });
 
@@ -252,6 +285,33 @@ describe('handleGenerateInsight', () => {
     expect(queryEntriesByDateRange).toHaveBeenCalledWith(ENV, 'u1', '2026-05-01', '2026-07-31');
     expect(result).toMatchObject({ type: 'quarterly', periodKey: '2026-07', rangeStart: '2026-05-01', rangeEnd: '2026-07-31' });
     expect(saveInsight).toHaveBeenCalledWith(ENV, 'u1', 'quarterly_2026-07', result);
+  });
+
+  it('quarterly は週別内訳（weeklyBreakdown）を含む', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-01T00:00:00.000Z'));
+    vi.mocked(getInsight).mockResolvedValue(null);
+    vi.mocked(queryEntriesByDateRange).mockResolvedValue([
+      entry('2026-05-04', 'calm', []),
+      entry('2026-05-05', 'calm', []),
+    ]);
+    const llm = llmStub();
+
+    const result = await handleGenerateInsight(ENV, llm, 'u1', { type: 'quarterly', periodKey: '2026-07' });
+
+    expect(result.weeklyBreakdown).toBeDefined();
+    expect(result.weeklyBreakdown?.[0]).toMatchObject({ weekStart: '2026-04-27' });
+    // 週別内訳は集計値のみ（LLMには渡さない、userText には含めない＝下のテストで確認）。
+  });
+
+  it('weekly/monthly は週別内訳（weeklyBreakdown）を含まない', async () => {
+    vi.mocked(getInsight).mockResolvedValue(null);
+    vi.mocked(queryEntriesByDateRange).mockResolvedValue([entry('2026-01-05', 'calm', [])]);
+    const llm = llmStub();
+
+    const result = await handleGenerateInsight(ENV, llm, 'u1', { type: 'monthly', periodKey: '2026-01' });
+
+    expect(result.weeklyBreakdown).toBeUndefined();
   });
 
   it('LLM へ日記本文を渡さない（集計値のみを送る）', async () => {

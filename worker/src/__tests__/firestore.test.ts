@@ -5,6 +5,7 @@ import {
   createPairing,
   deletePairingsForUid,
   deleteUserData,
+  getEntry,
   getInsight,
   getPairing,
   queryEntriesByDateRange,
@@ -99,6 +100,55 @@ describe('getPairing', () => {
       json: async () => ({ fields: { uid: { stringValue: 'u' } }, updateTime: 't' }),
     });
     expect(await getPairing(ENV, 'tok')).toBeNull();
+  });
+});
+
+describe('getEntry', () => {
+  it('mask.fieldPaths で mood/bodyText のみ取得する', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: { mood: { stringValue: 'tender' }, bodyText: { stringValue: '本文' } } }),
+    });
+
+    const entry = await getEntry(ENV, 'u1', 'e1');
+
+    expect(entry).toEqual({ mood: 'tender', bodyText: '本文' });
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${DOCS_BASE}/users/u1/entries/e1?mask.fieldPaths=mood&mask.fieldPaths=bodyText`);
+  });
+
+  it('mood が無い（スキップされた日）場合は null を返す値として扱う', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: { bodyText: { stringValue: '本文のみ' } } }),
+    });
+    expect(await getEntry(ENV, 'u1', 'e1')).toEqual({ mood: null, bodyText: '本文のみ' });
+  });
+
+  it('404（存在しないentryId）は null を返す', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
+    expect(await getEntry(ENV, 'u1', 'missing')).toBeNull();
+  });
+
+  it('bodyText 欠落（壊れたドキュメント）は null を返す', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ fields: {} }) });
+    expect(await getEntry(ENV, 'u1', 'e1')).toBeNull();
+  });
+
+  it('bodyText が空文字列の場合も null を返す（欠落と同様に扱う）', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: { bodyText: { stringValue: '' } } }),
+    });
+    expect(await getEntry(ENV, 'u1', 'e1')).toBeNull();
+  });
+
+  it('5xx は unavailable にマッピングする', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    await expect(getEntry(ENV, 'u1', 'e1')).rejects.toMatchObject({ code: 'unavailable' });
   });
 });
 
@@ -282,6 +332,71 @@ describe('getInsight', () => {
     });
   });
 
+  it('weeklyBreakdown 付きのドキュメントもパースして返す（quarterly の週別内訳）', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        fields: {
+          type: { stringValue: 'quarterly' },
+          periodKey: { stringValue: '2026-07' },
+          rangeStart: { stringValue: '2026-05-01' },
+          rangeEnd: { stringValue: '2026-07-31' },
+          moodDistribution: {
+            mapValue: { fields: { calm: { integerValue: '50' }, tender: { integerValue: '30' }, heavy: { integerValue: '20' } } },
+          },
+          weeklyBreakdown: {
+            arrayValue: {
+              values: [
+                {
+                  mapValue: {
+                    fields: {
+                      weekStart: { stringValue: '2026-04-27' },
+                      distribution: {
+                        mapValue: { fields: { calm: { integerValue: '100' }, tender: { integerValue: '0' }, heavy: { integerValue: '0' } } },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          topWords: { arrayValue: { values: [] } },
+          narrative: { stringValue: '過去3ヶ月は…' },
+          generatedAt: { timestampValue: '2026-08-01T00:00:00.000Z' },
+          schemaVersion: { integerValue: '1' },
+        },
+      }),
+    });
+
+    const result = await getInsight(ENV, 'u1', 'quarterly_2026-07');
+    expect(result?.weeklyBreakdown).toEqual([{ weekStart: '2026-04-27', distribution: { calm: 100, tender: 0, heavy: 0 } }]);
+  });
+
+  it('weeklyBreakdown が無いドキュメント（weekly/monthly）は undefined のまま', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        fields: {
+          type: { stringValue: 'monthly' },
+          periodKey: { stringValue: '2026-07' },
+          rangeStart: { stringValue: '2026-07-01' },
+          rangeEnd: { stringValue: '2026-07-31' },
+          moodDistribution: { mapValue: { fields: {} } },
+          topWords: { arrayValue: { values: [] } },
+          narrative: { stringValue: '7月は…' },
+          generatedAt: { timestampValue: '2026-08-01T00:00:00.000Z' },
+          schemaVersion: { integerValue: '1' },
+        },
+      }),
+    });
+
+    const result = await getInsight(ENV, 'u1', 'monthly_2026-07');
+    expect(result).not.toBeNull();
+    expect(result?.weeklyBreakdown).toBeUndefined();
+  });
+
   it('必須フィールド欠落は null（再生成させる）', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
@@ -321,6 +436,36 @@ describe('saveInsight', () => {
     });
     expect(fields.generatedAt).toEqual({ timestampValue: '2026-07-06T00:00:00.000Z' });
     expect(fields.schemaVersion).toEqual({ integerValue: '1' });
+  });
+
+  it('weeklyBreakdown があれば書き込み、無ければフィールド自体を送らない', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    const withWeekly: InsightDoc = {
+      type: 'quarterly',
+      periodKey: '2026-07',
+      rangeStart: '2026-05-01',
+      rangeEnd: '2026-07-31',
+      moodDistribution: { calm: 50, tender: 30, heavy: 20 },
+      weeklyBreakdown: [{ weekStart: '2026-04-27', distribution: { calm: 100, tender: 0, heavy: 0 } }],
+      topWords: [],
+      narrative: 'まとめ',
+      generatedAt: '2026-08-01T00:00:00.000Z',
+      source: { model: 'gemini-3.5-flash' },
+      schemaVersion: 1,
+    };
+
+    await saveInsight(ENV, 'u1', 'quarterly_2026-07', withWeekly);
+    const fieldsWithWeekly = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string).fields;
+    expect(fieldsWithWeekly.weeklyBreakdown.arrayValue.values[0].mapValue.fields).toEqual({
+      weekStart: { stringValue: '2026-04-27' },
+      distribution: { mapValue: { fields: { calm: { integerValue: '100' }, tender: { integerValue: '0' }, heavy: { integerValue: '0' } } } },
+    });
+
+    fetchMock.mockClear();
+    const withoutWeekly: InsightDoc = { ...withWeekly, type: 'monthly', weeklyBreakdown: undefined };
+    await saveInsight(ENV, 'u1', 'monthly_2026-07', withoutWeekly);
+    const fieldsWithoutWeekly = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string).fields;
+    expect(fieldsWithoutWeekly.weeklyBreakdown).toBeUndefined();
   });
 });
 

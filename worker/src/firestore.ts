@@ -215,6 +215,31 @@ export async function queryEntriesByDateRange(
   });
 }
 
+// chat のサーバ側文脈補完（api-contract.md 3.4）に使う、当該エントリの最小情報。
+export interface EntryContext {
+  mood: string | null;
+  bodyText: string;
+}
+
+// users/{uid}/entries/{entryId} を取得する。存在しない・uid不一致（他人のentryId）・
+// 形が壊れている場合は null（呼び出し側は文脈補完なしにフォールバックする＝必須情報ではない）。
+// mask.fieldPaths で mood/bodyText のみ取得し、words/adjustments/source 等は読まない
+// （最小取得の原則、constraints.md）。
+export async function getEntry(env: Env, uid: string, entryId: string): Promise<EntryContext | null> {
+  const projectId = serviceAccountProjectId(env);
+  const url =
+    `${documentsBase(projectId)}/users/${encodeURIComponent(uid)}/entries/${encodeURIComponent(entryId)}` +
+    '?mask.fieldPaths=mood&mask.fieldPaths=bodyText';
+  const res = await firestoreFetch(env, url, { method: 'GET' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw await mapFirestoreError(res);
+
+  const doc = (await res.json()) as { fields?: Record<string, FsValue> };
+  const bodyText = doc.fields?.bodyText?.stringValue;
+  if (!bodyText) return null;
+  return { mood: doc.fields?.mood?.stringValue ?? null, bodyText };
+}
+
 // ==========================================================================
 // insights（週次/月次まとめのキャッシュ）
 // ==========================================================================
@@ -225,6 +250,8 @@ export interface InsightDoc {
   rangeStart: string;
   rangeEnd: string;
   moodDistribution: { calm: number; tender: number; heavy: number };
+  // quarterly（過去3ヶ月）タブの「感情の推移（週ごと）」用。weekly/monthly では算出しない。
+  weeklyBreakdown?: { weekStart: string; distribution: { calm: number; tender: number; heavy: number } }[];
   topWords: { word: string; count: number }[];
   narrative: string;
   generatedAt: string; // ISO8601
@@ -264,16 +291,28 @@ export async function getInsight(env: Env, uid: string, periodId: string): Promi
 
   const moodFields = f?.moodDistribution?.mapValue?.fields;
   const num = (v?: FsValue): number => Number(v?.integerValue ?? 0);
+  const readMoodMap = (fields?: Record<string, FsValue>) => ({
+    calm: num(fields?.calm),
+    tender: num(fields?.tender),
+    heavy: num(fields?.heavy),
+  });
+  const weeklyBreakdownValues = f?.weeklyBreakdown?.arrayValue?.values;
+  const weeklyBreakdown = weeklyBreakdownValues
+    ? weeklyBreakdownValues
+        .map((v) => ({
+          weekStart: v.mapValue?.fields?.weekStart?.stringValue ?? '',
+          distribution: readMoodMap(v.mapValue?.fields?.distribution?.mapValue?.fields),
+        }))
+        .filter((w) => w.weekStart.length > 0)
+    : undefined;
+
   return {
     type,
     periodKey,
     rangeStart,
     rangeEnd,
-    moodDistribution: {
-      calm: num(moodFields?.calm),
-      tender: num(moodFields?.tender),
-      heavy: num(moodFields?.heavy),
-    },
+    moodDistribution: readMoodMap(moodFields),
+    ...(weeklyBreakdown ? { weeklyBreakdown } : {}),
     topWords: (f?.topWords?.arrayValue?.values ?? [])
       .map((v) => ({
         word: v.mapValue?.fields?.word?.stringValue ?? '',
@@ -292,21 +331,29 @@ export async function saveInsight(env: Env, uid: string, periodId: string, doc: 
   const projectId = serviceAccountProjectId(env);
   // integerValue は REST 仕様上 string（int64）で送る。
   const int = (n: number): FsValue => ({ integerValue: String(Math.trunc(n)) });
+  const moodMap = (m: { calm: number; tender: number; heavy: number }): FsValue => ({
+    mapValue: { fields: { calm: int(m.calm), tender: int(m.tender), heavy: int(m.heavy) } },
+  });
   const body = {
     fields: {
       type: { stringValue: doc.type },
       periodKey: { stringValue: doc.periodKey },
       rangeStart: { stringValue: doc.rangeStart },
       rangeEnd: { stringValue: doc.rangeEnd },
-      moodDistribution: {
-        mapValue: {
-          fields: {
-            calm: int(doc.moodDistribution.calm),
-            tender: int(doc.moodDistribution.tender),
-            heavy: int(doc.moodDistribution.heavy),
-          },
-        },
-      },
+      moodDistribution: moodMap(doc.moodDistribution),
+      ...(doc.weeklyBreakdown
+        ? {
+            weeklyBreakdown: {
+              arrayValue: {
+                values: doc.weeklyBreakdown.map((w) => ({
+                  mapValue: {
+                    fields: { weekStart: { stringValue: w.weekStart }, distribution: moodMap(w.distribution) },
+                  },
+                })),
+              },
+            },
+          }
+        : {}),
       topWords: {
         arrayValue: {
           values: doc.topWords.map((w) => ({

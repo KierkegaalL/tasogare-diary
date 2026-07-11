@@ -167,6 +167,49 @@ export function aggregate(entries: EntrySummary[]): Aggregation {
   return { moodDistribution: toPercentDistribution(counts), topWords };
 }
 
+// ---- 週別集計（quarterly タブの「感情の推移（週ごと）」screen.md 4.1）----
+
+export interface WeeklyMoodPoint {
+  weekStart: string; // YYYY-MM-DD（週の月曜）
+  distribution: Record<MoodLevel, number>;
+}
+
+// date（YYYY-MM-DD）が属する ISO 週の月曜日を返す。
+function mondayOf(date: string): string {
+  const ms = Date.parse(`${date}T00:00:00Z`);
+  const dow = new Date(ms).getUTCDay() || 7; // 1(月)..7(日)
+  return toDateString(ms - (dow - 1) * DAY_MS);
+}
+
+// [rangeStart, rangeEnd] を含む週の月曜日を列挙する。mondayOf は日付に対して単調なので、
+// entries の各 date は必ずこの範囲内のいずれかの週に対応する。
+function weekStartsInRange(rangeStart: string, rangeEnd: string): string[] {
+  const lastMs = Date.parse(`${mondayOf(rangeEnd)}T00:00:00Z`);
+  const starts: string[] = [];
+  for (let ms = Date.parse(`${mondayOf(rangeStart)}T00:00:00Z`); ms <= lastMs; ms += 7 * DAY_MS) {
+    starts.push(toDateString(ms));
+  }
+  return starts;
+}
+
+// 期間内の週ごとの感情分布（百分率）。エントリが無い週も0件の週として含め、推移の空白が
+// 分かるようにする（quarterly のみで使用。weekly/monthly は期間そのものが短く週別内訳は不要）。
+export function aggregateWeekly(entries: EntrySummary[], rangeStart: string, rangeEnd: string): WeeklyMoodPoint[] {
+  const buckets = new Map<string, Record<MoodLevel, number>>(
+    weekStartsInRange(rangeStart, rangeEnd).map((start) => [start, { calm: 0, tender: 0, heavy: 0 }]),
+  );
+
+  for (const entry of entries) {
+    if (!isMoodLevel(entry.mood)) continue;
+    const bucket = buckets.get(mondayOf(entry.date));
+    if (bucket) bucket[entry.mood] += 1;
+  }
+
+  return [...buckets.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([weekStart, counts]) => ({ weekStart, distribution: toPercentDistribution(counts) }));
+}
+
 // ---- キャッシュ鮮度 ----
 
 // 期間が完全に過ぎていれば内容は変わらないので永続キャッシュ。進行中なら TTL で作り直す。
@@ -215,6 +258,8 @@ export async function handleGenerateInsight(
   }
 
   const { moodDistribution, topWords } = aggregate(entries);
+  // 週別内訳は quarterly（過去3ヶ月）タブでのみ算出する（screen.md 4.1「感情の推移（週ごと）」）。
+  const weeklyBreakdown = type === 'quarterly' ? aggregateWeekly(entries, rangeStart, rangeEnd) : undefined;
 
   // 送るのは集計値のみ（本文なし）。
   const userText = JSON.stringify({
@@ -241,6 +286,7 @@ export async function handleGenerateInsight(
     rangeStart,
     rangeEnd,
     moodDistribution,
+    ...(weeklyBreakdown ? { weeklyBreakdown } : {}),
     topWords,
     narrative,
     generatedAt: new Date().toISOString(),
