@@ -118,10 +118,11 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 {
   "bodyText": "今日は晴れた午後、カフェで友達と話したけれど、締め切りが頭から離れず少し疲れた一日だった。",
   "mood": "tender",
-  "promptVersion": "diary-v1"
+  "promptVersion": "diary-v1",
+  "model": "gemini-3.5-flash"
 }
 ```
-- 備考: `mood` は3値 enum（`calm`/`tender`/`heavy`）の推定。確信を持てない/入力語が乏しい場合は `null` を返しうる（型: `"calm"|"tender"|"heavy"|null`。閾値は U 未確定、[data.md](data.md) 第4章）。本エンドポイントは**生成のみ**で保存はしない（保存はクライアントが Firestore へ書込、第4章）。
+- 備考: `mood` は3値 enum（`calm`/`tender`/`heavy`）の推定。確信を持てない/入力語が乏しい場合は `null` を返しうる（型: `"calm"|"tender"|"heavy"|null`。閾値は U 未確定、[data.md](data.md) 第4章）。本エンドポイントは**生成のみ**で保存はしない（保存はクライアントが Firestore へ書込、第4章）。`model` は実際に呼び出したモデルID（クライアントはこれを `promptVersion` と併せて `entries.source` に保存する。第8章・[data.md](data.md) 3.2）。
 
 ### 3.3 `adjustDiary` — 調整・再生成
 - **用途**: 「もっと前向きに/短くして/詳しく」で本文を再生成（[screen.md](screen.md) 3.5）。
@@ -133,8 +134,9 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 - `instruction`: `positive`（前向きに）/`shorter`（短く）/`detailed`（詳しく）。
 - Response:
 ```json
-{ "bodyText": "…調整後の本文…", "mood": "tender", "promptVersion": "adjust-v1" }
+{ "bodyText": "…調整後の本文…", "mood": "tender", "promptVersion": "adjust-v1", "model": "gemini-3.1-flash-lite" }
 ```
+- 備考: `model` は generateDiary と同様、実際に呼び出したモデルID。クライアントは適用した `instruction` を `entries.adjustments`（履歴・任意）に、最新の `model`/`promptVersion` を `entries.source` に保存する。
 
 ### 3.4 `chat` — AI対話（詳細画面）
 - **用途**: 保存済みエントリを文脈に、寄り添い対話（[screen.md](screen.md) 3.8）。
@@ -179,7 +181,7 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
   "topWords": [ { "word": "疲れた", "count": 12 }, { "word": "カフェ", "count": 9 } ],
   "narrative": "7月は「疲れた」という言葉が目立つ月でした。…",
   "generatedAt": "2026-08-01T00:00:00Z",
-  "source": { "model": "claude-sonnet-5" },
+  "source": { "model": "gemini-3.5-flash" },
   "schemaVersion": 1
 }
 ```

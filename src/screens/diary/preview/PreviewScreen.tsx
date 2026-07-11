@@ -16,8 +16,9 @@ import { NoteCard } from '../../../components/NoteCard';
 import { Orb } from '../../../components/Orb';
 import { LitOverlay } from '../../../components/LitOverlay';
 import { colors, fonts, moodColor, moodLabel, radius, spacing } from '../../../theme';
-import type { DiaryEntry, DiaryWord } from '../../../types/diary';
+import type { DiaryWord } from '../../../types/diary';
 import { todayISO } from '../../../utils/date';
+import { buildDiaryEntry } from './buildDiaryEntry';
 
 const ADJUSTMENTS: { label: string; instruction: AdjustInstruction }[] = [
   { label: 'もっと前向きに', instruction: 'positive' },
@@ -45,6 +46,10 @@ export function PreviewScreen() {
     [mood, words],
   );
 
+  // 「選び直す」（Words画面へnavigate）は画面をアンマウントしない（stack上に既存のPreviewへ戻るだけ）ため、
+  // words が変わったことを検知するキー。変化時に下の useEffect で override 等をリセットする。
+  const wordsKey = useMemo(() => requestWords.map((w) => `${w.category}:${w.text}`).join('|'), [requestWords]);
+
   const gen = useGenerateDiary(requestWords, date, !isOffline);
   const adjust = useAdjustDiary();
   const [override, setOverride] = useState<GenerateDiaryResponse | null>(null);
@@ -54,18 +59,35 @@ export function PreviewScreen() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [lit, setLit] = useState(false);
+  // 適用した調整の履歴（data.md 3.2 entries.adjustments）。
+  const [appliedAdjustments, setAppliedAdjustments] = useState<AdjustInstruction[]>([]);
+
+  // words が変わった（選び直した）ら、古い調整結果・調整履歴・保存エラーを引きずらないようにする。
+  // 画面がアンマウントされない（stack上に既存のPreviewへ戻るだけ）ため useState の初期値だけでは
+  // 対応できない（レビュー指摘）。レンダー中に state を調整する公式パターンで対応する
+  // （https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes）。
+  const [prevWordsKey, setPrevWordsKey] = useState(wordsKey);
+  if (wordsKey !== prevWordsKey) {
+    setPrevWordsKey(wordsKey);
+    setOverride(null);
+    setAppliedAdjustments([]);
+    setSaveError(false);
+  }
 
   const onAdjust = (instruction: AdjustInstruction) => {
     if (!display || busy) return;
     adjust.mutate(
       { bodyText: display.bodyText, instruction },
       {
-        onSuccess: (res) =>
+        onSuccess: (res) => {
           setOverride({
             bodyText: res.bodyText,
             mood: res.mood ?? display.mood, // 調整では感情ラベルを維持
             promptVersion: res.promptVersion,
-          }),
+            model: res.model,
+          });
+          setAppliedAdjustments((prev) => [...prev, instruction]);
+        },
       },
     );
   };
@@ -77,17 +99,15 @@ export function PreviewScreen() {
     // リポジトリ層（ローカル/Firestore）へ保存。id は自動生成、1日1件（U-11）は date による
     // upsert で担保する（data.md 3.2: 自動ID＋date、スキーマは複数許容のまま）。
     // 失敗時は下書き（draftStore）を保持したまま再試行できるようにする（screen.md 3.5）。
-    const now = new Date().toISOString();
-    const entry: DiaryEntry = {
+    const entry = buildDiaryEntry({
       id: makeId(),
       date,
-      mood: display.mood,
-      words: requestWords,
-      bodyText: display.bodyText,
-      ...(awareness ? { awareness } : {}),
-      createdAt: now,
-      updatedAt: now,
-    };
+      display,
+      requestWords,
+      awareness,
+      appliedAdjustments,
+      now: new Date().toISOString(),
+    });
     try {
       await addEntry(uid, entry);
       setSaving(false);

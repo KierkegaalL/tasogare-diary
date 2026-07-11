@@ -142,7 +142,8 @@ const GENERATE_DIARY_SCHEMA = {
   required: ['bodyText', 'mood'],
 } as const;
 
-async function handleGenerateDiary(llm: LlmProvider, data: Record<string, unknown>) {
+// テストのため export（insight.ts の handleGenerateInsight と同様の方針）。
+export async function handleGenerateDiary(llm: LlmProvider, data: Record<string, unknown>) {
   const words = data.words;
   if (!Array.isArray(words) || words.length === 0) {
     throw new ApiError(400, 'invalid-argument', 'words は必須です。');
@@ -167,6 +168,8 @@ async function handleGenerateDiary(llm: LlmProvider, data: Record<string, unknow
     bodyText: parsed.bodyText ?? '',
     mood: parsed.mood ?? null,
     promptVersion: PROMPT_VERSION.generateDiary,
+    // 保存時に entries.source.model として追跡できるよう、実際に使ったモデルIDを返す（api-contract.md 第8章）。
+    model: llm.modelFor('generate'),
   };
 }
 
@@ -181,7 +184,8 @@ const ADJUST_DIARY_SCHEMA = {
   required: ['bodyText'],
 } as const;
 
-async function handleAdjustDiary(llm: LlmProvider, data: Record<string, unknown>) {
+// テストのため export（insight.ts の handleGenerateInsight と同様の方針）。
+export async function handleAdjustDiary(llm: LlmProvider, data: Record<string, unknown>) {
   const bodyText = requireString(data.bodyText, 'bodyText');
   const instruction = data.instruction as AdjustInstruction;
   if (!['positive', 'shorter', 'detailed'].includes(instruction)) {
@@ -205,7 +209,12 @@ async function handleAdjustDiary(llm: LlmProvider, data: Record<string, unknown>
   });
 
   // mood は調整では再推定しない（クライアントが既存の mood を維持する）。
-  return { bodyText: parsed.bodyText ?? bodyText, mood: null, promptVersion: PROMPT_VERSION.adjustDiary };
+  return {
+    bodyText: parsed.bodyText ?? bodyText,
+    mood: null,
+    promptVersion: PROMPT_VERSION.adjustDiary,
+    model: llm.modelFor('interactive'),
+  };
 }
 
 // ==========================================================================

@@ -1,4 +1,4 @@
-import type { ChatRole, DiaryWord, WordCategory } from '../types/diary';
+import type { AdjustInstruction, ChatRole, DiaryWord, WordCategory } from '../types/diary';
 import type { MoodLevel } from '../theme/colors';
 import { isClaudeWorkerConfigured } from './claudeWorker/config';
 import * as mockApi from './diaryApi.mock';
@@ -40,8 +40,9 @@ export interface GenerateDiaryResponse {
   bodyText: string;
   mood: MoodLevel | null;
   promptVersion: string;
+  // 保存時に entries.source.model として追跡するため、実際に使ったモデルID（data.md 3.2・第8章）。
+  model: string;
 }
-export type AdjustInstruction = 'positive' | 'shorter' | 'detailed';
 export interface AdjustDiaryRequest {
   bodyText: string;
   instruction: AdjustInstruction;
@@ -123,4 +124,4 @@ export function generateInsight(req: GenerateInsightRequest): Promise<GenerateIn
 }
 
 // 型の再エクスポート（呼び出し側の利便のため）。
-export type { DiaryWord };
+export type { DiaryWord, AdjustInstruction };
