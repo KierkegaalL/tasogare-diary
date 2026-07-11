@@ -1,6 +1,6 @@
 # Memory — たそがれ日記 プロジェクト引き継ぎドキュメント
 
-最終更新: 2026-07-11（コミット9298b02反映。docs記載済み低優先度タスク4件のうち2件完了、2件対応中）
+最終更新: 2026-07-11（コミット658a1d0反映。docs記載済み低優先度タスク4件のうち3件完了、1件対応中）
 
 > このファイルは ClaudeCode がセッションをまたいで状況を引き継ぐための**状況記録ドキュメント**。ルール本体（振る舞いの指示）は [CLAUDE.md](CLAUDE.md) と `.claude/rules/` を正とし、本ファイルはそれらを前提にした**現在地のスナップショット**を保持する。矛盾があれば CLAUDE.md / `.claude/rules/` が優先。
 >
@@ -128,7 +128,7 @@ tasogare-diary/
 **docsに明記済みの正式な残タスク**（2026-07-11、ユーザー承認のもと実現可能な4件に着手中。設計判断/開発ビルドが必要な3件は次回以降へ）
 - [x] 設定画面のアカウント削除UI → **完了**（コミット6b21e88）
 - [x] Gemini再試行の最大待ち時間の再検討 → **完了**（コミット9298b02。`REQUEST_TIMEOUT_MS`を`Record<LlmPurpose, number>`化し用途別に分離：interactive=15秒/generate=20秒、最大待ち時間はinteractive≒30.6秒・generate≒40.6秒。reviewer指摘＝共通タイムアウトだとgenerate側のdeadline-exceeded率が上がるリスクを踏まえた設計）
-- [ ] chatのサーバ側文脈補完（現状クライアント履歴のみ送信）→ 今回実施予定
+- [x] chatのサーバ側文脈補完 → **完了（一部）**（コミット658a1d0。`entryId`から`getEntry`＝`worker/src/firestore.ts`で当日の`mood`/`bodyText`のみ`mask.fieldPaths`で取得し`system`プロンプトへ注入。`history`切り詰めの影響を受けない。取得失敗・entryId不正時は文脈補完なしにフォールバックし対話継続。関連する過去エントリの**要約**補完は未実装のまま＝`docs/api-contract.md`第10章に明記）
 - [ ] 「過去3ヶ月」タブの感情推移グラフが単一積み上げバーのまま（週別内訳は未実装）→ 今回実施予定
 - 【次回以降・設計判断/開発ビルドが必要】generateInsightの定期事前生成（Cron Triggers）未実装（全ユーザー列挙のコスト・権限設計が要検討）
 - 【次回以降・開発ビルド必須】ネイティブ資格情報取得の運用配線（`App.tsx`等の起動エントリで`installNativeCredentialSource()`を呼ぶ）・実機疎通確認（Expo Goを壊さない配線方法の検討が必要）
@@ -136,5 +136,6 @@ tasogare-diary/
 
 **軽微な所見（任意対応・ブロッカーではない）**
 - `PreviewScreen.tsx`の`wordsKey`算出式と`useDiaryGeneration.ts`の`key`算出式が同一ロジックを重複実装（reviewer所見、PR #40）。将来の変更漏れリスクはあるが現状は不具合なし。共通ユーティリティへの切り出しは任意
+- `handleChat`（`getEntry`でサーバ側再取得・uidスコープ強制）と`handleChatOpening`（`data.mood`/`data.bodyText`をクライアントから直接信頼）で、同じ「その日の記録」の取得経路が非対称（reviewer所見、コミット658a1d0）。クライアントは自分の日記データしか持てないため実害は小さいが、将来`chatOpening`側も`entryId`起点のサーバ側取得へ揃える一貫性リファクタの余地あり
 
 2026-07-11の整合チェックで発見した新規タスクは全て解消済み（PR #40〜#42）。残るは docs記載済みの低優先度残タスク群のみ（次回セッションはユーザーの指示待ち）。
