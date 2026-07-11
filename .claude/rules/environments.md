@@ -75,3 +75,4 @@ Web ダッシュボード（`web/`・Next.js 静的エクスポート）は**モ
 - `NEXT_PUBLIC_WORKER_URL`: Cloudflare Worker の URL（モバイルの `EXPO_PUBLIC_CLAUDE_WORKER_URL` と同一）。QRペアリング照合（`verifyPairingToken`）とまとめ取得（`generateInsight`）に使う。
 - 初回サインインは**モバイルの QR ペアリング**（`web/src/app/pair`・`web/src/app/connect`）。Apple/Google サインインは上記の恒久アカウント昇格タスクと合わせて対応する。詳細は [web/README.md](../../web/README.md)。
 - **対になるモバイル側変数**: QR に `<WEB_URL>/pair?token=…` のディープリンクを埋め込むには、モバイルの `EXPO_PUBLIC_WEB_URL` に Web デプロイ URL を設定する（`src/services/pairing.ts` の `pairingQrPayload`）。未設定時はトークン文字列のみを QR 化し、Web 側は `/connect` でその文字列を貼り付けて連携する。
+- **デプロイ**: リポジトリルートの `firebase.json`（`hosting` セクション）・`.firebaserc`（`staging`/`prod` エイリアス）で Firebase Hosting 配信を定義済み。手順は [web/README.md](../../web/README.md) の「デプロイ」節。`dev` は Hosting を使わずローカル起動のみ。
