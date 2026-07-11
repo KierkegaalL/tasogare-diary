@@ -134,11 +134,11 @@ graph LR
 - **遷移**: 戻る→前画面（Calendar/Home）。
 
 ### 3.9 設定（`settings`）
-- **目的**: Web連携・バックアップ等の入口。
-- **要素**: ヘッダー（戻る＋「設定」）／行（`.settings-row`）: 「Webで見る」（`.settings-row-sub`「パソコンから日記を見られるようにする」）／「バックアップする」（「機種変更・削除に備えてアカウントを保存」）。
+- **目的**: Web連携・バックアップ・アカウント削除等の入口。
+- **要素**: ヘッダー（戻る＋「設定」）／行（`.settings-row`）: 「Webで見る」（`.settings-row-sub`「パソコンから日記を見られるようにする」）／「バックアップする」（「機種変更・削除に備えてアカウントを保存」）／「アカウントを削除する」（「日記・対話・連携情報がすべて削除されます」）。
 - **遷移**: 「Webで見る」→WebConnect。バックアップ→**Apple/Google アカウント連携で担保（U-13決定）**。
-- **実装メモ（実装済み）**: `src/screens/settings/SettingsScreen.tsx`。連携UI（Apple/Google リンク昇格。`AccountLinkSection`）は WebConnect 画面側に既に実装済みのため重複実装を避け、**「バックアップする」行も WebConnect へ遷移する**（U-13決定の「画面上のアクションは再認証確認程度」を、独立した確認UIではなく既存の連携導線への遷移で満たす設計判断）。**「バックアップする」行は連携が実際に可能な場合のみ表示する**（`useLinkableAccountKinds`＝`src/hooks/useAccountLink.ts`。匿名アカウントかつネイティブ資格情報ソース導入済みの開発ビルドが条件、`environments.md`）。既に恒久化済み、または既定の Expo Go 等で導入前の環境では行自体を出さない（遷移先で `AccountLinkSection` が何も描画しない「押しても何も起きない」導線を避けるため。WebConnect 側の「未対応の空UIを出さない」原則と統一）。
-- **将来**: アカウント削除・reduced-motion 等の設定項目を追加（データ削除は [data.md](data.md) 第7章）。
+- **実装メモ（実装済み）**: `src/screens/settings/SettingsScreen.tsx`。連携UI（Apple/Google リンク昇格。`AccountLinkSection`）は WebConnect 画面側に既に実装済みのため重複実装を避け、**「バックアップする」行も WebConnect へ遷移する**（U-13決定の「画面上のアクションは再認証確認程度」を、独立した確認UIではなく既存の連携導線への遷移で満たす設計判断）。**「バックアップする」行は連携が実際に可能な場合のみ表示する**（`useLinkableAccountKinds`＝`src/hooks/useAccountLink.ts`。匿名アカウントかつネイティブ資格情報ソース導入済みの開発ビルドが条件、`environments.md`）。既に恒久化済み、または既定の Expo Go 等で導入前の環境では行自体を出さない（遷移先で `AccountLinkSection` が何も描画しない「押しても何も起きない」導線を避けるため。WebConnect 側の「未対応の空UIを出さない」原則と統一）。**「アカウントを削除する」行はタップで画面内に確認UI（`.settings-row` の代わりに警告文＋「本当に削除する」／「キャンセル」）を表示する2段階確認**（`DeleteAccountSection`）。確認後の削除は `deleteAccount()`（`src/services/account.ts`）→成功時は `authStore.signOut()`（削除済みセッションをクリアし新しい匿名セッションを確立）→ `MainTabs`/`Home` へ遷移。失敗時は確認UIのままエラー文を表示し再試行できる。**Worker 未設定時（モック運用）は行自体を表示しない**（`isAccountDeletionAvailable`。削除は不可逆なため「削除できたふり」をしない方針）。
+- **将来**: reduced-motion 等の設定項目を追加。
 
 ### 3.10 Webで見る（QR）（`webConnect`）
 - **目的**: PC でダッシュボードを見るためのデバイス連携（QR 表示）。

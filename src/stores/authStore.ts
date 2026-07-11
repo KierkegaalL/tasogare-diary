@@ -57,12 +57,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     // 復帰不能（loading のまま）を避けるため、サインアウト後に匿名セッションを再確立する。
     // TODO(Phase2 Firebase): 実サインアウトでは再サインインに対話が必要になるため、
     //   その際にサインイン画面への遷移等へ本フローを見直す。
+    // 失敗時も内部状態は 'error' にするが、呼び出し元が成功/失敗を判別できるよう rethrow する
+    // （例: アカウント削除後の再匿名化失敗を「削除自体が失敗した」と誤表示しないため。reviewer指摘）。
     try {
       await provider.signOut();
       const user = await provider.signIn();
       set({ user, status: 'authenticated' });
-    } catch {
+    } catch (err) {
       set({ user: null, status: 'error' });
+      throw err;
     }
   },
 }));

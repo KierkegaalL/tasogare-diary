@@ -250,7 +250,7 @@ service cloud.firestore {
 - **削除（アカウント/日記）**: ユーザーは自分の日記・アカウントを削除可能。**削除時は関連データを確実に削除**する。
   - **実装（Phase4・実装済み）**: Cloud Functions は不採用のため、**Cloudflare Workers の `deleteAccount`**（`worker/src/account.ts`。要認証・明示呼び出し）が担う。`users/{uid}` サブツリー（`entries`＋`messages`＋`wordStats`＋`insights`）→ `pairings` の当該 `uid` 文書 → Auth ユーザー の順に削除する。**Auth を最後にする**のは途中失敗時に同じ ID トークンで再実行できるようにするため。Firestore REST にはサブツリー一括削除 API が無く `firebase-admin` の `recursiveDelete()` も使えないため、**collection group クエリ**（`allDescendants=true`）でコレクション ID ごとに子孫を1回で集め `documents:commit` で一括削除する自前実装（`worker/src/firestore.ts` の `deleteUserData`）。ドキュメントを1件ずつ再帰的に辿ると Cloudflare Workers のサブリクエスト上限（無料プランで50）に達しうるため、呼び出し回数をデータ量に依存させない設計にしている。取得は `select: ['__name__']` でキーのみを読み、本文は取得しない。冪等性は「存在しない文書の delete は no-op」「Auth の `USER_NOT_FOUND` は成功扱い」で担保（[api-contract.md](api-contract.md) 6.1・§10）。
   - 日記単体削除は `entries/{entryId}` とその `messages` をクライアントが削除する（`wordStats` 再集計は Cloud Functions トリガ前提のため現状行われない。3.4 の実装メモ参照）。
-  - **UI（設定画面の削除導線）は未実装**（[screen.md](screen.md) 3.9 で「将来」の扱い）。クライアントは API 層 `src/services/account.ts` のみ用意している。
+  - **UI（設定画面の削除導線）は実装済み**（`src/screens/settings/SettingsScreen.tsx` の `DeleteAccountSection`、[screen.md](screen.md) 3.9）。画面内の2段階確認（警告文→「本当に削除する」）を経て `deleteAccount()` を呼び、成功時は `authStore.signOut()` で新しい匿名セッションを確立してホームへ戻す。
 - **保持**: 明示削除まで保持。ペアリングトークンは失効後も残る（TTL ポリシー未設定。3.6 の実装メモ参照）が、アカウント削除時には当該 `uid` の分をまとめて削除する。
 
 ---
