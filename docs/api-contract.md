@@ -185,9 +185,26 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
   "schemaVersion": 1
 }
 ```
+  - `type: "quarterly"` の場合は上記に加えて `weeklyBreakdown` を含む（詳細は本節末尾の備考）:
+```json
+{
+  "type": "quarterly",
+  "periodKey": "2026-07",
+  "rangeStart": "2026-05-01",
+  "rangeEnd": "2026-07-31",
+  "moodDistribution": { "calm": 40, "tender": 35, "heavy": 25 },
+  "weeklyBreakdown": [ { "weekStart": "2026-06-29", "distribution": { "calm": 50, "tender": 30, "heavy": 20 } } ],
+  "topWords": [ { "word": "疲れた", "count": 12 }, { "word": "カフェ", "count": 9 } ],
+  "narrative": "この3ヶ月は「疲れた」という言葉が目立ちました。…",
+  "generatedAt": "2026-08-01T00:00:00Z",
+  "source": { "model": "gemini-3.5-flash" },
+  "schemaVersion": 1
+}
+```
 - 備考: 集計は Firestore の `entries` からサーバが算出（クライアントは算出しない）。`weekly` はモバイル⑥にも表示、`monthly` は Web 限定。保存時にサーバが `periodId`（`type_periodKey`、[data.md](data.md) 3.5）と `schemaVersion` を付与する。
 - **`moodDistribution` は百分率**（整数・合計100）。`mood` が null のエントリは母数から除外し、1件も `mood` が無ければ全て 0 を返す。端数は最大剰余法で配分する。
 - **`topWords` は最大10件**。同一エントリ内の重複語は1回として数え、件数降順・同数は語の昇順で安定させる。
+- **`weeklyBreakdown` は `type=quarterly` のみ**返す（`weekly`/`monthly` には含まれない）。期間内の ISO 週（月曜始まり）を過不足なく列挙し、週ごとに `moodDistribution` と同じ百分率計算を行う。エントリが1件も無い週も0件の週として含める（`worker/src/insight.ts` の `aggregateWeekly`）。Web ダッシュボード（[screen.md](screen.md) 4.1）の「感情の推移（週ごと）」カードで使用（`.mood-chart` を週単位で並べた積み上げバー）。LLM へは渡さない（集計値のみ送信する原則、第8章）。
 - **キャッシュ**: `users/{uid}/insights/{periodId}` を参照し、**期間が確定していれば永続的に再利用**、それ以外は生成から1時間で作り直す。`generatedAt` が壊れている場合も再生成する。
   - 確定判定は「`rangeEnd` が UTC の今日より**1日以上前**」（`worker/src/insight.ts` の `PERIOD_CLOSE_GRACE_MS`）。`entries.date` は端末ローカル日付で、Worker 側は UTC しか持たないため、UTC より遅れたタイムゾーンの端末が期間最終日にいる間に確定扱いしてしまわないよう猶予を置く。猶予中は上記1時間 TTL で再生成される。
 - **エラー**: 期間内にエントリが1件も無い場合は `failed-precondition`（LLM は呼ばない）。
