@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useRootNavigation } from '../../app/navigation/hooks';
@@ -32,6 +32,8 @@ export function CalendarScreen() {
     const entry = entries.find((e) => e.date === date);
     if (entry) navigation.navigate('Detail', { entryId: entry.id });
   };
+  // EntryRow（React.memo）の props を安定させ、検索入力毎の再レンダーで仮想化の恩恵が薄れないようにする。
+  const openEntryById = useCallback((id: string) => navigation.navigate('Detail', { entryId: id }), [navigation]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -88,7 +90,7 @@ export function CalendarScreen() {
           <WeeklyInsightCard hasEntries={entries.length > 0} />
         </ScrollView>
       ) : (
-        <ListView entries={entries} query={query} onQuery={setQuery} onOpen={(id) => navigation.navigate('Detail', { entryId: id })} />
+        <ListView entries={entries} query={query} onQuery={setQuery} onOpen={openEntryById} />
       )}
     </SafeAreaView>
   );
@@ -169,6 +171,13 @@ function ToggleTab({ label, active, onPress }: { label: string; active: boolean;
   );
 }
 
+interface MonthSection {
+  title: string;
+  data: DiaryEntry[];
+}
+
+// 過去の日記一覧（constraints.md: 大量データでも軽量に保つため仮想化）。月ごとの見出しを持つため
+// SectionList（FlatList 系の仮想化リスト。表示中の項目のみマウントする）で実装する。
 function ListView({
   entries,
   query,
@@ -190,7 +199,7 @@ function ListView({
   }, [entries, query]);
 
   // 月ごとに区切る（entries は新しい順）。
-  const groups = useMemo(() => {
+  const sections = useMemo<MonthSection[]>(() => {
     const map = new Map<string, DiaryEntry[]>();
     for (const e of filtered) {
       const key = formatYearMonth(e.date);
@@ -198,53 +207,66 @@ function ListView({
       arr.push(e);
       map.set(key, arr);
     }
-    return Array.from(map.entries());
+    return Array.from(map.entries()).map(([title, data]) => ({ title, data }));
   }, [filtered]);
 
   return (
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <TextInput
-        style={styles.search}
-        value={query}
-        onChangeText={onQuery}
-        placeholder="キーワードで検索…"
-        placeholderTextColor={colors.inkFaint}
-      />
-      {filtered.length === 0 ? (
+    <SectionList
+      sections={sections}
+      keyExtractor={(item) => item.id}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      stickySectionHeadersEnabled={false}
+      ListHeaderComponent={
+        <TextInput
+          style={styles.search}
+          value={query}
+          onChangeText={onQuery}
+          placeholder="キーワードで検索…"
+          placeholderTextColor={colors.inkFaint}
+        />
+      }
+      ListEmptyComponent={
         hasHydrated ? (
           <Text style={styles.empty}>{entries.length === 0 ? 'まだ日記がありません。' : '該当する日記がありません。'}</Text>
         ) : null
-      ) : (
-        groups.map(([month, list]) => (
-          <View key={month}>
-            <Text style={styles.monthDivider}>{month}</Text>
-            {list.map((e) => (
-              <Pressable key={e.id} style={styles.listEntry} onPress={() => onOpen(e.id)} accessibilityRole="button">
-                <View style={styles.listDate}>
-                  <Text style={styles.listDay}>{ymd(e.date).d}</Text>
-                  <Text style={styles.listDow}>{weekdayJa(e.date)}</Text>
-                </View>
-                <View style={styles.listBody}>
-                  <Text style={styles.listText} numberOfLines={2}>
-                    {e.bodyText}
-                  </Text>
-                  <View style={styles.tagsRow}>
-                    {e.words.slice(0, 4).map((w) => (
-                      <Text key={`${e.id}-${w.text}`} style={styles.tag}>
-                        {w.text}
-                      </Text>
-                    ))}
-                  </View>
-                </View>
-                <OrbMini size={10} color={e.mood ? moodColor(e.mood) : colors.line} />
-              </Pressable>
-            ))}
-          </View>
-        ))
-      )}
-    </ScrollView>
+      }
+      renderSectionHeader={({ section }) => <Text style={styles.monthDivider}>{section.title}</Text>}
+      renderItem={({ item }) => <EntryRow entry={item} onOpen={onOpen} />}
+    />
   );
 }
+
+// SectionList の仮想化と合わせ、非表示範囲外の行の不要な再計算を抑える（reviewer所見）。
+const EntryRow = React.memo(function EntryRow({
+  entry,
+  onOpen,
+}: {
+  entry: DiaryEntry;
+  onOpen: (id: string) => void;
+}) {
+  return (
+    <Pressable style={styles.listEntry} onPress={() => onOpen(entry.id)} accessibilityRole="button">
+      <View style={styles.listDate}>
+        <Text style={styles.listDay}>{ymd(entry.date).d}</Text>
+        <Text style={styles.listDow}>{weekdayJa(entry.date)}</Text>
+      </View>
+      <View style={styles.listBody}>
+        <Text style={styles.listText} numberOfLines={2}>
+          {entry.bodyText}
+        </Text>
+        <View style={styles.tagsRow}>
+          {entry.words.slice(0, 4).map((w) => (
+            <Text key={`${entry.id}-${w.text}`} style={styles.tag}>
+              {w.text}
+            </Text>
+          ))}
+        </View>
+      </View>
+      <OrbMini size={10} color={entry.mood ? moodColor(entry.mood) : colors.line} />
+    </Pressable>
+  );
+});
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.paper },
