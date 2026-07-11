@@ -5,6 +5,7 @@ import {
   createPairing,
   deletePairingsForUid,
   deleteUserData,
+  getEntry,
   getInsight,
   getPairing,
   queryEntriesByDateRange,
@@ -99,6 +100,55 @@ describe('getPairing', () => {
       json: async () => ({ fields: { uid: { stringValue: 'u' } }, updateTime: 't' }),
     });
     expect(await getPairing(ENV, 'tok')).toBeNull();
+  });
+});
+
+describe('getEntry', () => {
+  it('mask.fieldPaths で mood/bodyText のみ取得する', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: { mood: { stringValue: 'tender' }, bodyText: { stringValue: '本文' } } }),
+    });
+
+    const entry = await getEntry(ENV, 'u1', 'e1');
+
+    expect(entry).toEqual({ mood: 'tender', bodyText: '本文' });
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${DOCS_BASE}/users/u1/entries/e1?mask.fieldPaths=mood&mask.fieldPaths=bodyText`);
+  });
+
+  it('mood が無い（スキップされた日）場合は null を返す値として扱う', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: { bodyText: { stringValue: '本文のみ' } } }),
+    });
+    expect(await getEntry(ENV, 'u1', 'e1')).toEqual({ mood: null, bodyText: '本文のみ' });
+  });
+
+  it('404（存在しないentryId）は null を返す', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
+    expect(await getEntry(ENV, 'u1', 'missing')).toBeNull();
+  });
+
+  it('bodyText 欠落（壊れたドキュメント）は null を返す', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ fields: {} }) });
+    expect(await getEntry(ENV, 'u1', 'e1')).toBeNull();
+  });
+
+  it('bodyText が空文字列の場合も null を返す（欠落と同様に扱う）', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: { bodyText: { stringValue: '' } } }),
+    });
+    expect(await getEntry(ENV, 'u1', 'e1')).toBeNull();
+  });
+
+  it('5xx は unavailable にマッピングする', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    await expect(getEntry(ENV, 'u1', 'e1')).rejects.toMatchObject({ code: 'unavailable' });
   });
 });
 

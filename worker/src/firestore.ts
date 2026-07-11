@@ -215,6 +215,31 @@ export async function queryEntriesByDateRange(
   });
 }
 
+// chat のサーバ側文脈補完（api-contract.md 3.4）に使う、当該エントリの最小情報。
+export interface EntryContext {
+  mood: string | null;
+  bodyText: string;
+}
+
+// users/{uid}/entries/{entryId} を取得する。存在しない・uid不一致（他人のentryId）・
+// 形が壊れている場合は null（呼び出し側は文脈補完なしにフォールバックする＝必須情報ではない）。
+// mask.fieldPaths で mood/bodyText のみ取得し、words/adjustments/source 等は読まない
+// （最小取得の原則、constraints.md）。
+export async function getEntry(env: Env, uid: string, entryId: string): Promise<EntryContext | null> {
+  const projectId = serviceAccountProjectId(env);
+  const url =
+    `${documentsBase(projectId)}/users/${encodeURIComponent(uid)}/entries/${encodeURIComponent(entryId)}` +
+    '?mask.fieldPaths=mood&mask.fieldPaths=bodyText';
+  const res = await firestoreFetch(env, url, { method: 'GET' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw await mapFirestoreError(res);
+
+  const doc = (await res.json()) as { fields?: Record<string, FsValue> };
+  const bodyText = doc.fields?.bodyText?.stringValue;
+  if (!bodyText) return null;
+  return { mood: doc.fields?.mood?.stringValue ?? null, bodyText };
+}
+
 // ==========================================================================
 // insights（週次/月次まとめのキャッシュ）
 // ==========================================================================
