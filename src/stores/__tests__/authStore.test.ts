@@ -31,4 +31,13 @@ describe('authStore', () => {
     // ローカルはサインアウトで新しい匿名 uid になる
     expect(store().user?.uid).not.toBe(firstUid);
   });
+
+  it('linkAccount はローカルプロバイダ（linkWith 非対応）では AuthLinkError(unavailable) を投げ、状態を変えない', async () => {
+    await store().initialize();
+    const before = store().user;
+    await expect(store().linkAccount('google')).rejects.toMatchObject({ name: 'AuthLinkError', code: 'unavailable' });
+    // 失敗時は user/status を変えない。
+    expect(store().user).toBe(before);
+    expect(store().status).toBe('authenticated');
+  });
 });

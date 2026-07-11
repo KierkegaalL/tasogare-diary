@@ -65,7 +65,7 @@
   2. 「ウェブアプリ」を追加し `firebaseConfig` を取得
   3. Authentication → Sign-in method → **匿名（Anonymous）を有効化**
   4. 取得値を `.env`（gitignore 済み）に設定 → 再起動で Firebase 匿名認証に切替
-- Apple/Google サインインは、恒久アカウントが要る段階（「Webで見る」/バックアップ）で **匿名アカウントへリンク**して昇格する（別タスク）。
+- Apple/Google サインインは、恒久アカウントが要る段階（「Webで見る」/バックアップ）で **匿名アカウントへリンク**して昇格する。**昇格ロジックは実装済み**（`firebaseAuthProvider.linkWith`＝`linkWithCredential`、`authStore.linkAccount`、`WebConnectScreen` の導線。`credential-already-in-use` 等のエラーは `AuthLinkError` に写像）。ただし**ネイティブのサインインUI（Apple/Google の資格情報取得）は開発ビルド前提の後続**で、`OAuthCredentialSource` シーム（`src/services/auth/credentialSource.ts`）越しに差し替える設計。既定（Expo Go）はシーム未提供のため `canLinkAccount()` が false となり導線を出さない。配布ビルドで `setCredentialSource` に expo-apple-authentication / Google サインイン等の実装を注入する。
 
 ## Web ダッシュボード クライアント設定（Phase4・`web/`）
 
