@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 
-import { getAuthProvider } from '../services/auth';
+import { getAuthProvider, AuthLinkError } from '../services/auth';
 import { localAuthProvider } from '../services/auth/localAuthProvider';
-import type { AuthUser } from '../services/auth';
+import type { AccountLinkKind, AuthUser } from '../services/auth';
 
 type AuthStatus = 'loading' | 'authenticated' | 'error';
 
@@ -11,6 +11,11 @@ interface AuthState {
   status: AuthStatus;
   initialize: () => Promise<void>;
   signOut: () => Promise<void>;
+  /**
+   * 匿名アカウントを Apple/Google の恒久アカウントへリンク昇格する（uid・データ維持）。
+   * 成功で user を更新。失敗は AuthLinkError を投げて UI に委ねる（状態は変えない）。
+   */
+  linkAccount: (kind: AccountLinkKind) => Promise<void>;
 }
 
 // 認証状態（architecture.md 第4.2節 authStore）。
@@ -37,6 +42,15 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ user: null, status: 'error' });
       }
     }
+  },
+  linkAccount: async (kind: AccountLinkKind) => {
+    const provider = getAuthProvider();
+    if (!provider.linkWith) {
+      // ローカル匿名プロバイダ等は昇格非対応。UI は canLinkAccount で導線を出さない前提だが二重の防御。
+      throw new AuthLinkError('unavailable', 'この環境ではアカウント連携を利用できません。');
+    }
+    const user = await provider.linkWith(kind);
+    set({ user, status: 'authenticated' });
   },
   signOut: async () => {
     const provider = getAuthProvider();

@@ -7,7 +7,12 @@ import { useRootNavigation } from '../../app/navigation/hooks';
 import { ScreenShell } from '../../components/ScreenShell';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { createPairingToken, isPairingAvailable, pairingQrPayload } from '../../services/pairing';
+import { canLinkAccount, AuthLinkError, linkKindLabel } from '../../services/auth';
+import type { AccountLinkKind } from '../../services/auth';
+import { useAuthStore } from '../../stores/authStore';
 import { colors, fonts, radius, spacing } from '../../theme';
+
+const LINK_KINDS: AccountLinkKind[] = ['apple', 'google'];
 
 // ⑨ Webで見る（QR表示 / screen.md 3.10）。
 // createPairingToken で短命トークン（60秒）を発行し QR 表示。失効に合わせて自動再発行する。
@@ -108,8 +113,60 @@ export function WebConnectScreen() {
       <Text style={styles.prompt}>パソコンでも、書いた日記をそのまま見られます</Text>
       <Text style={styles.promptSub}>下のコードを、パソコンのブラウザで読み取ってください</Text>
       {body()}
+      <AccountLinkSection />
       <Text style={styles.footNote}>スマホの日記データはそのまま、安全に保たれます</Text>
     </ScreenShell>
+  );
+}
+
+// 匿名アカウントを Apple/Google の恒久アカウントへ昇格する導線（environments.md）。
+// ネイティブ資格情報ソースが提供されている環境（対応した開発ビルド）でのみ表示する。
+// 既定（Expo Go）は canLinkAccount が false のため何も描画しない（未対応の空UIを出さない）。
+function AccountLinkSection() {
+  const provider = useAuthStore((s) => s.user?.provider);
+  const linkAccount = useAuthStore((s) => s.linkAccount);
+  const [busy, setBusy] = useState<AccountLinkKind | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const kinds = LINK_KINDS.filter((k) => canLinkAccount(k));
+  // 恒久化はまだ匿名のときだけ。既に Apple/Google 昇格済み、または導線が使えない環境では出さない。
+  if (provider !== 'anonymous' || kinds.length === 0) return null;
+
+  const onLink = async (kind: AccountLinkKind) => {
+    setBusy(kind);
+    setError(null);
+    setMessage(null);
+    try {
+      await linkAccount(kind);
+      setMessage(`${linkKindLabel(kind)} と連携しました。次からこのアカウントでサインインできます。`);
+    } catch (err) {
+      // キャンセルはエラー表示しない。
+      if (err instanceof AuthLinkError && err.code === 'cancelled') return;
+      setError(err instanceof Error ? err.message : '連携に失敗しました。');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <View style={styles.linkSection}>
+      <Text style={styles.linkTitle}>このデータを恒久アカウントに紐づける</Text>
+      <Text style={styles.linkSub}>
+        Apple／Google と連携すると、機種変更や再インストール後も同じ日記を引き継げます。
+      </Text>
+      {kinds.map((kind) => (
+        <PrimaryButton
+          key={kind}
+          label={busy === kind ? '連携しています…' : `${linkKindLabel(kind)} と連携`}
+          variant="ghost"
+          disabled={busy !== null}
+          onPress={() => void onLink(kind)}
+        />
+      ))}
+      {message && <Text style={styles.linkOk}>{message}</Text>}
+      {error && <Text style={styles.linkError}>{error}</Text>}
+    </View>
   );
 }
 
@@ -142,6 +199,23 @@ const styles = StyleSheet.create({
   timerFill: { height: 4, borderRadius: 2, backgroundColor: colors.dusk },
   timerLabel: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.inkFaint },
   note: { fontFamily: fonts.uiRegular, fontSize: 12, color: colors.inkFaint, textAlign: 'center' },
+  linkSection: {
+    marginTop: spacing.xxl,
+    paddingTop: spacing.xl,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    gap: spacing.sm,
+  },
+  linkTitle: { fontFamily: fonts.display, fontSize: 14, color: colors.ink, textAlign: 'center' },
+  linkSub: {
+    fontFamily: fonts.uiRegular,
+    fontSize: 11,
+    color: colors.inkFaint,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  linkOk: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.inkSoft, textAlign: 'center' },
+  linkError: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.dusk, textAlign: 'center' },
   footNote: {
     fontFamily: fonts.uiRegular,
     fontSize: 10.5,

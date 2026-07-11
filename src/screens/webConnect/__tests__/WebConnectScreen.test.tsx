@@ -1,4 +1,5 @@
 import React from 'react';
+import { Text } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { WebConnectScreen } from '../WebConnectScreen';
@@ -27,6 +28,19 @@ jest.mock('react-native-qrcode-svg', () => ({
 
 jest.mock('../../../app/navigation/hooks', () => ({
   useRootNavigation: () => ({ goBack: jest.fn() }),
+}));
+
+// アカウント昇格導線（AccountLinkSection）は既定（未対応環境）で何も描画しない。
+// auth サービス/ストアの実 import（AsyncStorage/firebase 経由）を避けるためモックする。
+let mockCanLink = false;
+jest.mock('../../../services/auth', () => ({
+  canLinkAccount: () => mockCanLink,
+  linkKindLabel: (k: string) => (k === 'google' ? 'Google' : 'Apple'),
+  AuthLinkError: class extends Error {},
+}));
+jest.mock('../../../stores/authStore', () => ({
+  useAuthStore: (selector: (s: unknown) => unknown) =>
+    selector({ user: { provider: 'anonymous' }, linkAccount: jest.fn() }),
 }));
 
 const flush = () => act(async () => {});
@@ -137,5 +151,47 @@ describe('WebConnectScreen', () => {
       jest.advanceTimersByTime(120_000);
     });
     expect(mockCreatePairingToken).toHaveBeenCalledTimes(1);
+  });
+
+  const textOf = (root: ReturnType<typeof create>): string =>
+    root.root
+      .findAllByType(Text)
+      .flatMap((n) => n.props.children)
+      .filter((c: unknown): c is string => typeof c === 'string')
+      .join('|');
+
+  it('リンク昇格が未対応（既定）のときはアカウント連携導線を出さない', async () => {
+    mockCanLink = false;
+    let root!: ReturnType<typeof create>;
+    await act(async () => {
+      root = create(<WebConnectScreen />);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(0);
+    });
+    await flush();
+    expect(textOf(root)).not.toContain('と連携');
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it('リンク昇格が利用可能なときは Apple/Google 連携ボタンを出す', async () => {
+    mockCanLink = true;
+    let root!: ReturnType<typeof create>;
+    await act(async () => {
+      root = create(<WebConnectScreen />);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(0);
+    });
+    await flush();
+    const text = textOf(root);
+    expect(text).toContain('Apple と連携');
+    expect(text).toContain('Google と連携');
+    mockCanLink = false;
+    await act(async () => {
+      root.unmount();
+    });
   });
 });
