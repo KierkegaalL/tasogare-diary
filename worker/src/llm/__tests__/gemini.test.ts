@@ -168,6 +168,29 @@ describe('createGeminiProvider', () => {
     ).rejects.toMatchObject({ code: 'deadline-exceeded', status: 504 });
   });
 
+  it('タイムアウトは purpose ごとに異なる（interactive=15秒・generate=20秒。2026-07-11再検討）', async () => {
+    // fetch を解決させず、setTimeout に渡された遅延だけを確認する。
+    fetchMock.mockReturnValue(new Promise<Response>(() => {}));
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    // fetch が永久に解決しないため呼び出しも永久に保留になる。宙に浮いた拒否/タイマーを
+    // 残さないよう例外は握りつぶす（reviewer指摘）。
+    void createGeminiProvider(ENV)
+      .callText({ purpose: 'interactive', system: 's', userText: 'u' })
+      .catch(() => {});
+    await Promise.resolve();
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
+
+    setTimeoutSpy.mockClear();
+    void createGeminiProvider(ENV)
+      .callText({ purpose: 'generate', system: 's', userText: 'u' })
+      .catch(() => {});
+    await Promise.resolve();
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 20_000);
+
+    setTimeoutSpy.mockRestore();
+  });
+
   it('その他の fetch 例外は unavailable にする', async () => {
     fetchMock.mockRejectedValue(new TypeError('network down'));
 
