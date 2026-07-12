@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { SettingsScreen } from '../SettingsScreen';
@@ -198,6 +198,52 @@ describe('SettingsScreen', () => {
         jest.advanceTimersByTime(120_000);
       });
       expect(mockCreatePairingToken).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Web版（Expo Web でこの画面自体をブラウザ表示した場合）', () => {
+    const originalOS = Platform.OS;
+    const originalWebUrl = process.env.EXPO_PUBLIC_WEB_URL;
+
+    afterEach(() => {
+      Object.defineProperty(Platform, 'OS', { get: () => originalOS });
+      process.env.EXPO_PUBLIC_WEB_URL = originalWebUrl;
+    });
+
+    it('PC向けQRコードは表示せず、Webダッシュボードへの案内を表示する（トークンも発行しない）', async () => {
+      Object.defineProperty(Platform, 'OS', { get: () => 'web' });
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      expect(mockCreatePairingToken).not.toHaveBeenCalled();
+      expect(allTexts(root).join('|')).toContain('パソコンでの閲覧はWebダッシュボードから');
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('EXPO_PUBLIC_WEB_URL 設定時はダッシュボードへのリンクを表示する', async () => {
+      Object.defineProperty(Platform, 'OS', { get: () => 'web' });
+      process.env.EXPO_PUBLIC_WEB_URL = 'https://tasogare-diary.app';
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      expect(allTexts(root).join('|')).toContain('https://tasogare-diary.app');
+      await act(async () => {
+        root.unmount();
+      });
     });
   });
 

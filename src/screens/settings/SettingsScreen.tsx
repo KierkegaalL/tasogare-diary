@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -41,8 +43,51 @@ export function SettingsScreen() {
 }
 
 // Webで見る（QR表示・screen.md 3.10）＋ バックアップ（Apple/Google連携、U-13決定）。
-// createPairingToken で短命トークン（60秒）を発行しQR表示。失効に合わせて自動再発行する。
+// Web版（Expo Web でこの画面自体をブラウザ表示した場合）は「パソコンで読み取るQR」を
+// 表示しても自己矛盾になる（PC上でPC向けQRを表示してしまう）ため、Web ダッシュボード
+// （別プロジェクト `web/`。カメラ読取は `web/src/components/QrScanner.tsx` に実装済み）への
+// 案内に差し替える（ユーザー指摘により変更）。
 function WebConnectSection() {
+  return (
+    <View style={styles.section}>
+      {Platform.OS === 'web' ? <WebDashboardNotice /> : <QrPairingBody />}
+      <AccountLinkSection />
+      <Text style={styles.footNote}>スマホの日記データはそのまま、安全に保たれます</Text>
+    </View>
+  );
+}
+
+// Web ダッシュボードへの案内（screen.md 4.2 の /connect）。EXPO_PUBLIC_WEB_URL が
+// 設定されていればリンクを開けるようにする。
+function WebDashboardNotice() {
+  const webUrl = process.env.EXPO_PUBLIC_WEB_URL;
+  const [error, setError] = useState(false);
+  return (
+    <View style={styles.center}>
+      <Text style={styles.prompt}>パソコンでの閲覧はWebダッシュボードから</Text>
+      <Text style={styles.promptSub}>
+        スマホアプリの設定画面に表示されるQRコードを、Webダッシュボードのカメラで読み取ってください。
+      </Text>
+      {webUrl ? (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="Webダッシュボードを開く"
+          onPress={() => {
+            setError(false);
+            Linking.openURL(`${webUrl.replace(/\/+$/, '')}/connect`).catch(() => setError(true));
+          }}
+        >
+          <Text style={styles.linkOk}>{webUrl}</Text>
+        </Pressable>
+      ) : null}
+      {error ? <Text style={styles.confirmError}>リンクを開けませんでした。</Text> : null}
+    </View>
+  );
+}
+
+// QRペアリング本体（ネイティブのみ）。createPairingToken で短命トークン（60秒）を発行しQR表示。
+// 失効に合わせて自動再発行する。
+function QrPairingBody() {
   const netInfo = useNetInfo();
   const isOffline = netInfo.isConnected === false;
 
@@ -133,13 +178,11 @@ function WebConnectSection() {
   };
 
   return (
-    <View style={styles.section}>
+    <>
       <Text style={styles.prompt}>パソコンでも、書いた日記をそのまま見られます</Text>
       <Text style={styles.promptSub}>下のコードを、パソコンのブラウザで読み取ってください</Text>
       {body()}
-      <AccountLinkSection />
-      <Text style={styles.footNote}>スマホの日記データはそのまま、安全に保たれます</Text>
-    </View>
+    </>
   );
 }
 
