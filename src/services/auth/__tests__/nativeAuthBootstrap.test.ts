@@ -63,3 +63,18 @@ describe('bootstrapNativeCredentialSource', () => {
     expect(installMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('bootstrapNativeCredentialSource（Web）', () => {
+  // Web は @react-native-google-signin / expo-apple-authentication が未実装のため対象外。
+  // jest.mock('react-native', ...) はファイル全体に効いてしまうため、このケースだけ
+  // jest.isolateModules + jest.doMock でサンドボックス化して Platform.OS を 'web' に固定する。
+  it('Platform.OS が web ならゲートが開いていても installNativeCredentialSource を呼ばない', () => {
+    jest.isolateModules(() => {
+      jest.doMock('react-native', () => ({ Platform: { OS: 'web' } }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { bootstrapNativeCredentialSource: bootstrapWeb } = require('../nativeAuthBootstrap');
+      bootstrapWeb(true);
+    });
+    expect(installMock).not.toHaveBeenCalled();
+  });
+});
