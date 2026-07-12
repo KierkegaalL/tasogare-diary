@@ -84,13 +84,19 @@ describe('installNativeCredentialSource', () => {
   });
 
   describe('Google', () => {
-    it('webClientId 指定で configure され利用可能・idToken/accessToken を返す', async () => {
+    it('webClientId・iosClientId 指定（iOS）で configure され利用可能・idToken/accessToken を返す', async () => {
       appleIsAvailable.mockResolvedValue(true);
       googleSignIn.mockResolvedValue({ type: 'success', data: { idToken: 'g-tok' } });
       googleGetTokens.mockResolvedValue({ idToken: 'g-tok', accessToken: 'g-acc' });
 
-      await installNativeCredentialSource({ googleWebClientId: 'web-client-id' });
-      expect(googleConfigure).toHaveBeenCalledWith({ webClientId: 'web-client-id' });
+      await installNativeCredentialSource({
+        googleWebClientId: 'web-client-id',
+        googleIosClientId: 'ios-client-id',
+      });
+      expect(googleConfigure).toHaveBeenCalledWith({
+        webClientId: 'web-client-id',
+        iosClientId: 'ios-client-id',
+      });
 
       const src = getCredentialSource();
       expect(src.isAvailable('google')).toBe(true);
@@ -103,7 +109,14 @@ describe('installNativeCredentialSource', () => {
 
     it('webClientId 未指定なら利用不可（configure しない）', async () => {
       appleIsAvailable.mockResolvedValue(true);
-      await installNativeCredentialSource({});
+      await installNativeCredentialSource({ googleIosClientId: 'ios-client-id' });
+      expect(googleConfigure).not.toHaveBeenCalled();
+      expect(getCredentialSource().isAvailable('google')).toBe(false);
+    });
+
+    it('iOS で iosClientId 未指定なら利用不可（GoogleService-Info.plist 未使用のため configure() がクラッシュする）', async () => {
+      appleIsAvailable.mockResolvedValue(true);
+      await installNativeCredentialSource({ googleWebClientId: 'web-client-id' });
       expect(googleConfigure).not.toHaveBeenCalled();
       expect(getCredentialSource().isAvailable('google')).toBe(false);
     });
@@ -112,7 +125,10 @@ describe('installNativeCredentialSource', () => {
       appleIsAvailable.mockResolvedValue(true);
       googleSignIn.mockResolvedValue({ type: 'cancelled' });
 
-      await installNativeCredentialSource({ googleWebClientId: 'web-client-id' });
+      await installNativeCredentialSource({
+        googleWebClientId: 'web-client-id',
+        googleIosClientId: 'ios-client-id',
+      });
       await expect(getCredentialSource().getCredential('google')).rejects.toMatchObject({
         name: 'AuthLinkError',
         code: 'cancelled',
