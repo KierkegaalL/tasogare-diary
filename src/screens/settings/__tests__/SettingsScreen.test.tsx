@@ -228,7 +228,7 @@ describe('SettingsScreen', () => {
       });
     });
 
-    it('EXPO_PUBLIC_WEB_URL 設定時はダッシュボードへのリンクを表示する', async () => {
+    it('EXPO_PUBLIC_WEB_URL 設定時はダッシュボードへ遷移するボタンを表示する', async () => {
       Object.defineProperty(Platform, 'OS', { get: () => 'web' });
       process.env.EXPO_PUBLIC_WEB_URL = 'https://tasogare-diary.app';
       let root!: ReturnType<typeof create>;
@@ -240,7 +240,28 @@ describe('SettingsScreen', () => {
       });
       await flush();
 
-      expect(allTexts(root).join('|')).toContain('https://tasogare-diary.app');
+      const button = findPressableByLabel(root, 'Webダッシュボードを開く');
+      expect(typeof button.props.onPress).toBe('function');
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('副題がWebダッシュボード向けの文言になり、スマホ向けの注記は表示しない', async () => {
+      Object.defineProperty(Platform, 'OS', { get: () => 'web' });
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      const texts = allTexts(root).join('|');
+      expect(texts).toContain('Webダッシュボードへの案内');
+      expect(texts).not.toContain('Web連携・バックアップ');
+      expect(texts).not.toContain('スマホの日記データはそのまま、安全に保たれます');
       await act(async () => {
         root.unmount();
       });
