@@ -1,5 +1,5 @@
 import { ExpoConfig, ConfigContext } from 'expo/config';
-import { withEntitlementsPlist } from 'expo/config-plugins';
+import { withEntitlementsPlist, withInfoPlist } from 'expo/config-plugins';
 
 // 環境切り替え: APP_ENV=dev|staging|prod（environments.md 参照）。
 const APP_ENV = (process.env.APP_ENV ?? 'dev') as 'dev' | 'staging' | 'prod';
@@ -36,6 +36,29 @@ const googleIosUrlScheme = process.env.EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME;
 const googleSignInPlugin: string | [string, { iosUrlScheme: string }] = googleIosUrlScheme
   ? ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }]
   : '@react-native-google-signin/google-signin';
+
+// @react-native-google-signin の新しいiOS SDK（AppCheck連携）は、上記の逆順クライアントIDとは別に、
+// Firebase の **iOS アプリ**の App ID（GOOGLE_APP_ID。形式 "1:PROJECT_NUMBER:ios:HASH"）から
+// 派生した URL scheme（":" を "-" に置換し "app-" を付けた形。例:
+// "app-1-134687703094-ios-21367886b6723e4d465897"）の登録も要求する（実機検証で
+// "Your app is missing support for the following URL schemes: app-1-..." エラーとして判明）。
+// 注意: EXPO_PUBLIC_FIREBASE_APP_ID は Web アプリの App ID（"...:web:..."）で別物。iOS アプリを
+// Firebase Console に追加した際に発行される iOS 用 App ID をこちらに設定する必要がある。
+// @react-native-google-signin の config plugin の iosUrlScheme は1つしか受け付けず、かつ
+// "com.googleusercontent.apps." 始まりを強制するため、この2つ目の scheme は withInfoPlist で
+// CFBundleURLTypes に別エントリとして追加する。
+const firebaseIosAppId = process.env.EXPO_PUBLIC_FIREBASE_IOS_APP_ID;
+function withGoogleSignInAppIdUrlScheme(config: ExpoConfig): ExpoConfig {
+  if (!firebaseIosAppId) return config;
+  const scheme = `app-${firebaseIosAppId.replace(/:/g, '-')}`;
+  return withInfoPlist(config, (config) => {
+    config.modResults.CFBundleURLTypes = [
+      ...(config.modResults.CFBundleURLTypes ?? []),
+      { CFBundleURLSchemes: [scheme] },
+    ];
+    return config;
+  });
+}
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const base: ExpoConfig = {
@@ -86,5 +109,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
   };
 
-  return appleSignInEnabled ? base : withoutAppleSignInEntitlement(base);
+  const withApple = appleSignInEnabled ? base : withoutAppleSignInEntitlement(base);
+  return withGoogleSignInAppIdUrlScheme(withApple);
 };
