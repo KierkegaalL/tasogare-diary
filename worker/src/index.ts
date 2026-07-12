@@ -4,6 +4,7 @@ import type { LlmHistoryEntry, LlmProvider } from './llm';
 import type { Env } from './env';
 import { handleDeleteAccount } from './account';
 import { handleGenerateInsight } from './insight';
+import { handleScheduled } from './cron';
 import { getEntry } from './firestore';
 import { handleCreatePairingToken, handleVerifyPairingToken } from './pairing';
 import {
@@ -357,5 +358,12 @@ export default {
     } catch (err) {
       return errorResponse(err);
     }
+  },
+
+  // Cron Triggers（wrangler.jsonc の triggers.crons）による insights 事前生成（cron.ts）。
+  // fetch と違いユーザーへの応答は無い。handleScheduled 内で1ユーザー・1タイプ単位の失敗は
+  // 握りつぶすため、ここまで伝播するのは致命的な例外のみ。waitUntil で完了まで実行を保証する。
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(handleScheduled(env, controller.scheduledTime));
   },
 };

@@ -96,6 +96,8 @@ erDiagram
 | `updatedAt` | timestamp | ✓ | 更新 |
 | `schemaVersion` | number | ✓ | 例: 1 |
 
+> **実装メモ（Phase2〜4）**: クライアントは `users/{uid}` **本体を書き込まず**、`users/{uid}/entries/...` 等のサブコレクションにのみ `setDoc` する（`src/services/repository/firestoreEntriesRepository.ts`）。そのため `users/{uid}` は Firestore 上「サブコレクションだけを持つ missing document」になり、上表のフィールドは現状どこにも保存されていない（Apple/Google 昇格やプロフィール保存を実装する段階で本体を作成する想定）。この事実に依存する処理として、Cron 事前生成のユーザー列挙（`worker/src/firestore.ts` の `listUserIds`）は `showMissing=true` 付きの list documents で列挙する（[api-contract.md](api-contract.md) §10）。
+
 ### 3.2 `users/{uid}/entries/{entryId}`
 | フィールド | 型 | 必須 | 説明 |
 |---|---|---|---|
