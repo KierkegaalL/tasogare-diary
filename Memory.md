@@ -1,6 +1,6 @@
 # Memory — たそがれ日記 プロジェクト引き継ぎドキュメント
 
-最終更新: 2026-07-12（ネイティブ資格情報取得の運用配線＝PR #45。実機疎通確認（iOS開発ビルド）で`pod install`が`AppCheckCore`未モジュール化エラーで失敗→`expo-build-properties`の`useFrameworks: 'static'`で解消し同PRへ追加コミット予定。Apple有料Developer Program要件のためGoogleのみで検証中。※Cron Triggers実装は別PR #44）
+最終更新: 2026-07-12（ネイティブ資格情報取得の運用配線＝PR #45。iOS実機疎通確認で3件の詰まりを解消: ①`pod install`のAppCheckCore未モジュール化エラー→`expo-build-properties`の`useFrameworks: 'static'`、②無料Apple ID（Personal Team）でのSign in with Apple provisioning失敗→`EXPO_PUBLIC_APPLE_SIGNIN_ENABLED`フラグで既定無効化（`expo-apple-authentication`はplugins未列挙でも自動適用されるためentitlement明示削除が必要だった）、③クライアント側`isAvailableAsync()`がentitlement無視で常にtrueを返す問題をreviewer指摘で発見・同フラグでガード。同PRへ追加コミット予定。※Cron Triggers実装は別PR #44）
 
 > このファイルは ClaudeCode がセッションをまたいで状況を引き継ぐための**状況記録ドキュメント**。ルール本体（振る舞いの指示）は [CLAUDE.md](CLAUDE.md) と `.claude/rules/` を正とし、本ファイルはそれらを前提にした**現在地のスナップショット**を保持する。矛盾があれば CLAUDE.md / `.claude/rules/` が優先。
 >
@@ -96,8 +96,9 @@ tasogare-diary/
 | 実装後チェックループ | `/check-loop`（reviewer サブエージェントで指摘0件まで反復） |
 
 ### iOS 開発ビルド作成時の既知の詰まりどころ
-- **`pod install` が UTF-8 ロケール警告で落ちる**: `LANG`/`LC_ALL` が未設定だと Ruby の `unicode_normalize` がクラッシュする。シェル設定ファイル（`~/.zshrc` 等）に `export LANG=en_US.UTF-8` / `export LC_ALL=en_US.UTF-8` を追記し、**新しいターミナルセッション**（設定ファイルを実際に読み込むログインシェル）で再実行する。
+- **`pod install` が UTF-8 ロケール警告で落ちる**: `LANG`/`LC_ALL` が未設定だと Ruby の `unicode_normalize` がクラッシュする。**Claude Code のターミナル（本ツールの Bash 環境と同じ）はログインシェルではないため `~/.zshrc` 等の `export` を読み込まない** — 恒久対策として `package.json` の `ios` スクリプトに `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` を埋め込み済み（`npm run ios` で回避）。手動で `pod install` する場合は毎回コマンド先頭に付ける。
 - **`pod install` が `AppCheckCore`/`GoogleUtilities`/`RecaptchaInterop` の未モジュール化エラーで失敗**（`@react-native-google-signin/google-signin` 由来）: `app.config.ts` の `plugins` に `expo-build-properties`（`{ ios: { useFrameworks: 'static' } }`）を追加して解消（PR #45）。`ios/` は `expo prebuild` のたびに再生成される（`.gitignore` 済み）ため、`ios/Podfile` を直接編集しても消える。config plugin 経由が正しい直し方。
+- **無料 Apple ID（Personal Team）で `xcodebuild`/Xcode の Signing & Capabilities が「Personal development teams... do not support the Sign In with Apple capability」で失敗**: `expo-apple-authentication` は `app.config.ts` の `plugins` に列挙していなくても、パッケージ root の `app.plugin.js` が `@expo/prebuild-config` の `versionedExpoSDKPackages` 経由で自動適用され、entitlement `com.apple.developer.applesignin` を注入し続ける（`expo config --type introspect` の `plugins`/`usesAppleSignIn` には出てこないのに `ios/app/app.entitlements` には残る、という紛らわしい挙動）。対処は `app.config.ts` に `EXPO_PUBLIC_APPLE_SIGNIN_ENABLED` フラグを新設し、無効時は `withEntitlementsPlist`（`expo/config-plugins`）で当該キーを明示的に `delete` する（`withoutAppleSignInEntitlement`）。**同じフラグを `nativeCredentialSourceInstall.ts` の Apple 可用性判定にも使うこと**（`AppleAuthentication.isAvailableAsync()` は entitlement の有無を見ず OS 対応のみで `true` を返すため、ビルド側だけ無効化すると「表示されるが押すと必ず失敗するボタン」になる。reviewer 指摘で発覚）。Apple サインインは有料 Developer Program 加入までスキップし Google のみで検証する方針。
 
 ### 認証情報・鍵の所在
 - Firebase クライアント設定: `.env`（gitignore済み。ローカルのみ）

@@ -42,8 +42,17 @@ export async function installNativeCredentialSource(
   const googleWebClientId = options.googleWebClientId ?? process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 
   // Apple: iOS かつ端末が対応している場合のみ利用可能。判定は起動時に一度確定させる。
+  // isAvailableAsync() は entitlement（com.apple.developer.applesignin）の有無を見ず OS対応のみで
+  // true を返す（app.config.ts で無料 Apple ID 運用のため entitlement を外していても true になる）。
+  // そのため EXPO_PUBLIC_APPLE_SIGNIN_ENABLED（app.config.ts と同一フラグ）でも明示的にガードし、
+  // 「表示されるが押すと必ず失敗するボタン」を防ぐ。
+  const appleSignInEnabled =
+    process.env.EXPO_PUBLIC_APPLE_SIGNIN_ENABLED === '1' ||
+    process.env.EXPO_PUBLIC_APPLE_SIGNIN_ENABLED === 'true';
   const appleAvailable =
-    Platform.OS === 'ios' && (await AppleAuthentication.isAvailableAsync().catch(() => false));
+    appleSignInEnabled &&
+    Platform.OS === 'ios' &&
+    (await AppleAuthentication.isAvailableAsync().catch(() => false));
 
   // Google: webClientId が要る（Firebase 用 idToken を得るため）。設定できたときのみ利用可能。
   let googleAvailable = false;
