@@ -97,6 +97,15 @@ export function createNativeCredentialSource(deps: NativeSignInDeps): OAuthCrede
         if (deps.isCancellation(err)) {
           throw new AuthLinkError('cancelled', `${linkKindLabel(kind)} サインインをキャンセルしました。`);
         }
+        // idToken/rawNonce/accessToken はログしない。ネイティブSDKのサインインエラーは
+        // 日記本文・uid を含まないため message も診断用にログする（Firestore エラーとは異なる）。
+        console.warn(
+          'native credential sign-in failed',
+          kind,
+          (err as { code?: string })?.code,
+          (err as Error)?.name,
+          (err as Error)?.message,
+        );
         throw new AuthLinkError('unknown', `${linkKindLabel(kind)} サインインに失敗しました。再度お試しください。`);
       }
     },

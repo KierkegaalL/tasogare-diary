@@ -112,7 +112,10 @@ export function PreviewScreen() {
       await addEntry(uid, entry);
       setSaving(false);
       setLit(true);
-    } catch {
+    } catch (err) {
+      // 日記本文・uid はログしない（constraints.md）。FirebaseError の message には
+      // ドキュメントパス（uid を含む）が入りうるため message 自体もログしない。
+      console.warn('diary save failed', (err as { code?: string })?.code, (err as Error)?.name);
       setSaving(false);
       setSaveError(true);
     }

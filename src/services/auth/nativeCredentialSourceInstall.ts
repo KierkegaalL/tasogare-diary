@@ -31,6 +31,8 @@ function isCancellation(err: unknown): boolean {
 export interface InstallNativeCredentialSourceOptions {
   /** Google サインインの webClientId（Firebase 用 idToken 取得に必須）。未指定なら env から読む。 */
   googleWebClientId?: string;
+  /** iOS の Google サインインで必須の iosClientId。未指定なら env から読む（Android では不要）。 */
+  googleIosClientId?: string;
 }
 
 // ネイティブ実装を OAuthCredentialSource として登録する。開発ビルドの起動時に一度呼ぶ。
@@ -40,16 +42,33 @@ export async function installNativeCredentialSource(
   options: InstallNativeCredentialSourceOptions = {},
 ): Promise<void> {
   const googleWebClientId = options.googleWebClientId ?? process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  const googleIosClientId = options.googleIosClientId ?? process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 
   // Apple: iOS かつ端末が対応している場合のみ利用可能。判定は起動時に一度確定させる。
+  // isAvailableAsync() は entitlement（com.apple.developer.applesignin）の有無を見ず OS対応のみで
+  // true を返す（app.config.ts で無料 Apple ID 運用のため entitlement を外していても true になる）。
+  // そのため EXPO_PUBLIC_APPLE_SIGNIN_ENABLED（app.config.ts と同一フラグ）でも明示的にガードし、
+  // 「表示されるが押すと必ず失敗するボタン」を防ぐ。
+  const appleSignInEnabled =
+    process.env.EXPO_PUBLIC_APPLE_SIGNIN_ENABLED === '1' ||
+    process.env.EXPO_PUBLIC_APPLE_SIGNIN_ENABLED === 'true';
   const appleAvailable =
-    Platform.OS === 'ios' && (await AppleAuthentication.isAvailableAsync().catch(() => false));
+    appleSignInEnabled &&
+    Platform.OS === 'ios' &&
+    (await AppleAuthentication.isAvailableAsync().catch(() => false));
 
-  // Google: webClientId が要る（Firebase 用 idToken を得るため）。設定できたときのみ利用可能。
+  // Google: webClientId が要る（Firebase 用 idToken を得るため）。
+  // iOS はさらに iosClientId が必須（GoogleService-Info.plist を使わない構成のため。未指定だと
+  // RNGoogleSignin が「failed to determine clientID」で configure() 時点でクラッシュする）。
+  const googleConfigured =
+    Boolean(googleWebClientId) && (Platform.OS !== 'ios' || Boolean(googleIosClientId));
   let googleAvailable = false;
-  if (googleWebClientId) {
+  if (googleConfigured) {
     try {
-      GoogleSignin.configure({ webClientId: googleWebClientId });
+      GoogleSignin.configure({
+        webClientId: googleWebClientId,
+        ...(Platform.OS === 'ios' ? { iosClientId: googleIosClientId } : {}),
+      });
       googleAvailable = true;
     } catch {
       googleAvailable = false;
