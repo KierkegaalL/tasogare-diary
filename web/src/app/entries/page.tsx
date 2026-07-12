@@ -105,9 +105,14 @@ export default function EntriesPage() {
           <h1 style={styles.title}>日記の一覧</h1>
           <p style={styles.subtitle}>書いた日記を、そのまま読み返せます（閲覧専用）。</p>
         </div>
-        <Link href="/dashboard" style={styles.navLink}>
-          振り返りダッシュボード →
-        </Link>
+        <div style={styles.headerLinks}>
+          <Link href="/dashboard" style={styles.navLink}>
+            振り返りダッシュボード →
+          </Link>
+          <Link href="/settings" style={styles.navLink}>
+            設定
+          </Link>
+        </div>
       </header>
 
       <input
@@ -200,7 +205,8 @@ const styles: Record<string, CSSProperties> = {
   },
   title: { fontFamily: 'var(--font-display)', fontSize: 24, margin: 0 },
   subtitle: { color: 'var(--ink-soft)', fontSize: 13, margin: '4px 0 0' },
-  navLink: { flexShrink: 0, fontSize: 13, color: 'var(--dusk-deep)', textDecoration: 'none' },
+  headerLinks: { flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 },
+  navLink: { fontSize: 13, color: 'var(--dusk-deep)', textDecoration: 'none' },
   search: {
     width: '100%',
     padding: '11px 14px',
