@@ -261,7 +261,7 @@ service cloud.firestore {
 ## 8. オフライン・同期の整合
 
 - **下書き**: 4ステップ入力途中は `draftStore`（zustand persist、AsyncStorage 実装、Firestore に載せない）。オフライン継続可。
-- **確定エントリ**: Firestore に保存。オフライン永続化により、オフライン保存はローカルキューに積まれオンライン復帰で自動同期（[architecture.md](architecture.md) 第7章）。
+- **確定エントリ**: Firestore に保存。ただし RN では Firebase JS SDK がメモリキャッシュ中心でローカル永続キューを持たないため（[architecture.md](architecture.md) 第7章）、オフライン中は保存を開始せずボタンを無効化し、送信中の切断は 15 秒タイムアウトでエラー表示に倒す（`PreviewScreen`）。下書き（`draftStore`）は保存成功まで保持されるため、オンライン復帰後に再試行できる。
 - **集計の整合**: `wordStats`/`insights` は Functions が確定エントリを基に更新するため、オフライン中は反映されない。オンライン同期後に更新される旨を UI で明示。
 - **競合**: 1ユーザー・単一端末書き込みが基本。複数端末同時編集は当面想定外（将来 U）。`updatedAt` は最終更新の**検知**用であり自動競合解決はしない（Firestore オフライン既定は last-write-wins）。複数端末同時編集を正式サポートする際に解決方式を別途設計する。
 

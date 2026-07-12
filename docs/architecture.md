@@ -222,18 +222,26 @@ stateDiagram-v2
 sequenceDiagram
   participant U as ユーザー
   participant D as draftStore(+AsyncStorage)
-  participant Q as TanStack Query
-  participant FS as Firestore(offline)
+  participant P as PreviewScreen
+  participant FS as Firestore(memory cache)
   U->>D: 4ステップ入力（オフライン可）
-  U->>Q: 「保存する」
-  Q->>FS: エントリ書込（楽観更新）
-  Note over FS: オフライン時はローカルキューに保持
-  FS-->>Q: オンライン復帰で自動同期
-  Q-->>U: 一覧/詳細へ反映
+  U->>P: 「保存する」
+  alt オフライン
+    Note over P: 保存ボタンを無効化し案内を表示（書込を開始しない）
+  else オンライン→送信中に切断
+    P->>FS: エントリ書込
+    Note over FS: JS SDK はメモリキャッシュのみ（永続キューなし）。<br/>Promise はオンライン復帰まで解決しない
+    Note over P: 15秒でタイムアウトしエラー表示に倒す（下書きは保持）
+  else オンライン
+    P->>FS: エントリ書込
+    FS-->>P: 書込完了
+    P-->>U: 「灯」演出→一覧へ反映
+  end
 ```
 - 入力途中はネット不要（`draftStore`）。Claude を要する処理（連想・生成・対話・まとめ）はネット必須で、オフライン時は明示（`constraints.md`）。
 - **データ永続はリポジトリ層で抽象化**（`services/repository`）。Firebase 未設定時はローカル（AsyncStorage）、設定時は Firestore（`users/{uid}/entries`）に切り替わる。
-- **Firestore のオフライン永続（RN 制約）**: Firebase JS SDK は RN で IndexedDB を使えず**メモリキャッシュ中心**（`experimentalForceLongPolling` を有効化）。`constraints.md` が求める本格的なオフライン永続は、必要になった段階で **`@react-native-firebase`（ネイティブ）** への移行で対応する（残タスク）。当面のオフライン下書き継続は `draftStore`（端末ローカル）で担保する。
+- **Firestore のオフライン永続（RN 制約）**: Firebase JS SDK は RN で IndexedDB を使えず**メモリキャッシュ中心**（`experimentalForceLongPolling` を有効化）。永続化されたローカルキューを持たないため、**オフライン中に発行した書込 Promise はオンライン復帰までハングする**（アプリの生存中はメモリ上の書込は再送されるが、プロセスが終了すれば失われる）。`constraints.md` が求める本格的なオフライン永続は、必要になった段階で **`@react-native-firebase`（ネイティブ）** への移行で対応する（残タスク）。
+  - **当面の緩和策（実装済み・`PreviewScreen`）**: 保存ボタンは `isOffline` 中は無効化し、書込を開始しない（ハング防止）。送信後にオフラインへ転じた場合に備え、書込を 15 秒でタイムアウトしエラー表示に倒す（`withTimeout`）。いずれの場合も `draftStore` の下書きは `reset()` を呼ぶ保存成功時（「灯」演出後）まで保持されるため、オフライン中でも下書きが失われることはなく、オンライン復帰後に再度「保存する」で再試行できる。
 
 ---
 
