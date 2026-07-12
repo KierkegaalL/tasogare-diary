@@ -1,6 +1,6 @@
 # Memory — たそがれ日記 プロジェクト引き継ぎドキュメント
 
-最終更新: 2026-07-11（コミット1a17a92反映。docs記載済み低優先度タスク4件すべて完了。push・PR作成待ち）
+最終更新: 2026-07-12（コミットd5ab99a反映。generateInsightの定期事前生成＝Cron Triggersを実装。feature/cron-pregenerate-insightsブランチにコミット済み・push/PR作成待ち）
 
 > このファイルは ClaudeCode がセッションをまたいで状況を引き継ぐための**状況記録ドキュメント**。ルール本体（振る舞いの指示）は [CLAUDE.md](CLAUDE.md) と `.claude/rules/` を正とし、本ファイルはそれらを前提にした**現在地のスナップショット**を保持する。矛盾があれば CLAUDE.md / `.claude/rules/` が優先。
 >
@@ -130,7 +130,7 @@ tasogare-diary/
 - [x] Gemini再試行の最大待ち時間の再検討 → **完了**（コミット9298b02。`REQUEST_TIMEOUT_MS`を`Record<LlmPurpose, number>`化し用途別に分離：interactive=15秒/generate=20秒、最大待ち時間はinteractive≒30.6秒・generate≒40.6秒。reviewer指摘＝共通タイムアウトだとgenerate側のdeadline-exceeded率が上がるリスクを踏まえた設計）
 - [x] chatのサーバ側文脈補完 → **完了（一部）**（コミット658a1d0。`entryId`から`getEntry`＝`worker/src/firestore.ts`で当日の`mood`/`bodyText`のみ`mask.fieldPaths`で取得し`system`プロンプトへ注入。`history`切り詰めの影響を受けない。取得失敗・entryId不正時は文脈補完なしにフォールバックし対話継続。関連する過去エントリの**要約**補完は未実装のまま＝`docs/api-contract.md`第10章に明記）
 - [x] 「過去3ヶ月」タブの感情推移グラフが単一積み上げバーのまま（週別内訳は未実装）→ **完了**（コミット1a17a92。`worker/src/insight.ts`に`aggregateWeekly`を追加、`type=quarterly`のみISO週（月曜始まり）ごとの百分率`weeklyBreakdown`を算出しキャッシュ（`InsightDoc`）に含める。エントリの無い週も0件として含め推移の空白を可視化。weekly/monthlyタブは期間が短いため従来どおり単一バーのまま。Webは`WeeklyMoodChart`（新規）で週別バーを表示、`MoodChart`は単一バー用に維持。**実データでのブラウザ確認は未実施**＝web/.env.localが未設定でFirebase未接続のため。型チェック・ユニットテスト（週境界を実際にnodeで計算し検証済み）・reviewerチェックは通過済み）
-- 【次回以降・設計判断/開発ビルドが必要】generateInsightの定期事前生成（Cron Triggers）未実装（全ユーザー列挙のコスト・権限設計が要検討）
+- [x] generateInsightの定期事前生成（Cron Triggers）→ **完了**（コミットd5ab99a・`feature/cron-pregenerate-insights`）。`worker/src/cron.ts`（`handleScheduled`）を新規実装し `index.ts` の `scheduled` に配線、`wrangler.jsonc` に `triggers.crons ["0 15 * * *"]`（00:00 JST）。現在期間の weekly/monthly まとめを事前生成しキャッシュを温める（best-effort、正はオンデマンド）。**設計課題「全ユーザー列挙のコスト・権限」への回答**: `users/{uid}` はクライアントが本体を書かず missing document になるため `listUserIds`（`worker/src/firestore.ts`）は `showMissing=true` 付き list documents で列挙・`mask` で本文非読・`CRON_MAX_USERS`（既定20）で件数制限。**JST/UTCズレバグ**（cron発火は15:00 UTC＝00:00 JSTで、UTCのままだと月/週境界直後に1つ古い期間を対象にする）をreviewer指摘で発見し、`handleScheduled`で`scheduledTime + 9h`のJST壁時計で算出するよう修正。`pad2`/`DAY_MS`/`toDateString`は`worker/src/dateUtils.ts`へ共通化。reviewerチェックループ（初回7件→再チェック0件）通過・型チェック・テスト143件パス
 - 【次回以降・開発ビルド必須】ネイティブ資格情報取得の運用配線（`App.tsx`等の起動エントリで`installNativeCredentialSource()`を呼ぶ）・実機疎通確認（Expo Goを壊さない配線方法の検討が必要）
 - 【次回以降・大規模ネイティブ移行】Firestoreオフライン永続化（RN制約でメモリキャッシュ中心。`@react-native-firebase`ネイティブ移行が本格対応。当面はdraftStoreで下書き継続を担保）
 
@@ -138,4 +138,4 @@ tasogare-diary/
 - `PreviewScreen.tsx`の`wordsKey`算出式と`useDiaryGeneration.ts`の`key`算出式が同一ロジックを重複実装（reviewer所見、PR #40）。将来の変更漏れリスクはあるが現状は不具合なし。共通ユーティリティへの切り出しは任意
 - `handleChat`（`getEntry`でサーバ側再取得・uidスコープ強制）と`handleChatOpening`（`data.mood`/`data.bodyText`をクライアントから直接信頼）で、同じ「その日の記録」の取得経路が非対称（reviewer所見、コミット658a1d0）。クライアントは自分の日記データしか持てないため実害は小さいが、将来`chatOpening`側も`entryId`起点のサーバ側取得へ揃える一貫性リファクタの余地あり
 
-2026-07-11の整合チェックで発見した新規タスクは全て解消済み（PR #40〜#42）。docs記載済みの低優先度残タスク4件のうち実現可能な4件全てが完了（`chore/remaining-low-priority-tasks`ブランチ）。残るは設計判断/開発ビルドが必要な3件のみ（次回セッションはユーザーの指示待ち）。
+2026-07-11の整合チェックで発見した新規タスクは全て解消済み（PR #40〜#42）。docs記載済みの低優先度残タスク4件のうち実現可能な4件全てが完了（`chore/remaining-low-priority-tasks`ブランチ＝PR #43）。2026-07-12にCron事前生成も完了（`feature/cron-pregenerate-insights`・コミットd5ab99a・push/PR待ち）。残るは開発ビルド必須の2件（ネイティブ資格情報の運用配線・Firestoreオフライン永続化の本格移行）のみ。
