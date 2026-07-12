@@ -377,6 +377,56 @@ export async function saveInsight(env: Env, uid: string, periodId: string, doc: 
 
 
 // ==========================================================================
+// users 列挙（Cron 事前生成・insight.ts / cron.ts）
+// ==========================================================================
+
+// users コレクションのドキュメント ID（uid）を列挙する。Cron による insights 事前生成で使う。
+//
+// **showMissing=true が必須**: 本アプリのクライアントは users/{uid} 本体へは書き込まず
+// （users/{uid}/entries/... にのみ setDoc する。src/services/repository/firestoreEntriesRepository.ts）、
+// users/{uid} は「サブコレクションだけを持つ missing document」になる。showMissing を付けないと
+// list/runQuery の対象から漏れるため、明示的に付けて列挙する。
+//
+// **本文・個人情報は読まない**（constraints.md）: mask.fieldPaths に実在しないフィールド名を渡し、
+// フィールドを一切返させない（missing document には元々フィールドが無いが、将来 users/{uid} 本体に
+// プロフィール等を書くようになっても cron が本文を読まないための防御）。ドキュメント名（末尾の uid）だけ使う。
+//
+// limit で件数を制限する（Cloudflare Workers のサブリクエスト上限を踏まえた上限。cron.ts 参照）。
+export async function listUserIds(env: Env, limit: number): Promise<string[]> {
+  const projectId = serviceAccountProjectId(env);
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      showMissing: 'true',
+      pageSize: String(Math.min(limit - ids.length, 300)),
+      // 実在しないフィールドを指定し、フィールドを返させない（名前のみ使う）。
+      'mask.fieldPaths': '__cron_no_fields__',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+
+    const res = await firestoreFetch(env, `${documentsBase(projectId)}/users?${params.toString()}`, {
+      method: 'GET',
+    });
+    // 防御的分岐: list documents は空コレクションでも通常 200＋空 body を返すため、実運用では
+    // ほぼ到達しない（空応答は下の documents 未設定で [] になる）。念のため 404 も空扱いにする。
+    if (res.status === 404) return ids;
+    if (!res.ok) throw await mapFirestoreError(res);
+
+    const body = (await res.json()) as { documents?: { name?: string }[]; nextPageToken?: string };
+    for (const doc of body.documents ?? []) {
+      const id = doc.name?.split('/').pop();
+      if (id) ids.push(id);
+      if (ids.length >= limit) return ids;
+    }
+    pageToken = body.nextPageToken;
+  } while (pageToken && ids.length < limit);
+
+  return ids;
+}
+
+// ==========================================================================
 // アカウント削除（api-contract.md 第6章・data.md 第7章）
 // ==========================================================================
 

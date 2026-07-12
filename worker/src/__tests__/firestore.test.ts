@@ -8,6 +8,7 @@ import {
   getEntry,
   getInsight,
   getPairing,
+  listUserIds,
   queryEntriesByDateRange,
   saveInsight,
 } from '../firestore';
@@ -149,6 +150,73 @@ describe('getEntry', () => {
   it('5xx は unavailable にマッピングする', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
     await expect(getEntry(ENV, 'u1', 'e1')).rejects.toMatchObject({ code: 'unavailable' });
+  });
+});
+
+describe('listUserIds', () => {
+  const name = (uid: string) => `${DOC_RESOURCE_BASE}/users/${uid}`;
+
+  it('showMissing=true と mask 付きで list documents し、末尾の uid を返す', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ documents: [{ name: name('u1') }, { name: name('u2') }] }),
+    });
+
+    const ids = await listUserIds(ENV, 20);
+
+    expect(ids).toEqual(['u1', 'u2']);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(`${DOCS_BASE}/users?`);
+    expect(url).toContain('showMissing=true');
+    // 本文を読まないため実在しないフィールドを mask に指定している。
+    expect(url).toContain('mask.fieldPaths=__cron_no_fields__');
+    expect(url).toContain('pageSize=20');
+  });
+
+  it('nextPageToken があればページングして全件集める', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ documents: [{ name: name('u1') }], nextPageToken: 'tok' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ documents: [{ name: name('u2') }] }),
+      });
+
+    expect(await listUserIds(ENV, 20)).toEqual(['u1', 'u2']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url2] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url2).toContain('pageToken=tok');
+  });
+
+  it('limit に達したら打ち切る（余剰は取得しない）', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ documents: [{ name: name('u1') }, { name: name('u2') }, { name: name('u3') }] }),
+    });
+
+    expect(await listUserIds(ENV, 2)).toEqual(['u1', 'u2']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('404（users コレクションが空）は空配列を返す', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
+    expect(await listUserIds(ENV, 20)).toEqual([]);
+  });
+
+  it('documents が無い応答は空配列を返す', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    expect(await listUserIds(ENV, 20)).toEqual([]);
+  });
+
+  it('5xx は unavailable にマッピングする', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    await expect(listUserIds(ENV, 20)).rejects.toMatchObject({ code: 'unavailable' });
   });
 });
 

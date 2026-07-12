@@ -4,13 +4,15 @@ import type { Env } from './env';
 import { getInsight, queryEntriesByDateRange, saveInsight } from './firestore';
 import type { EntrySummary, InsightDoc } from './firestore';
 import { SYSTEM_GENERATE_INSIGHT } from './prompts';
+import { DAY_MS, pad2, toDateString } from './dateUtils';
 
 // generateInsight — 週次/月次/過去3ヶ月まとめ（api-contract.md 3.5 / data.md 3.5）。
 // 方式は basic-design.md 4.3 の「案B: サーバで集計・キャッシュし、LLM で文章化」。
 // - 集計は Firestore の entries から算出する（wordStats は Cloud Functions 前提の集計先で未運用のため参照しない）。
 // - LLM へ渡すのは集計値のみ。日記本文は送らない（最小送信、constraints.md / api-contract.md 第8章）。
 // - 結果は users/{uid}/insights/{periodId} にキャッシュする（クライアントは書けないため Admin 経由）。
-// - 定期バッチ（Cron Triggers）での事前生成は未実装。本エンドポイントは表示時オンデマンド生成を担う。
+// - 本エンドポイントは表示時オンデマンド生成を担う。加えて cron.ts が現在期間を定期事前生成し
+//   本ハンドラを呼んでキャッシュを温める（best-effort。Cron Triggers。§10）。
 
 // quarterly は「過去3ヶ月」（screen.md 4.1）。periodKey は monthly と同じ YYYY-MM で
 // 末尾の月（＝今月）を表し、その月を含む直近3ヶ月を集計する（暦上の四半期ではない）。
@@ -20,20 +22,13 @@ export type MoodLevel = 'calm' | 'tender' | 'heavy';
 const MOODS: readonly MoodLevel[] = ['calm', 'tender', 'heavy'] as const;
 const SCHEMA_VERSION = 1;
 const TOP_WORDS_LIMIT = 10;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 // 期間が未確定（今週/今月）の間のキャッシュ有効期間。確定後は永続キャッシュ。
 const ONGOING_CACHE_TTL_MS = 60 * 60 * 1000;
 
+// 日付ユーティリティ（DAY_MS / pad2 / toDateString）は dateUtils.ts に集約（cron.ts と共有）。
+
 // ---- 期間キー → 集計範囲 ----
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-function toDateString(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
-}
 
 const WEEKLY_KEY = /^(\d{4})-W(\d{2})$/;
 const MONTHLY_KEY = /^(\d{4})-(0[1-9]|1[0-2])$/;
