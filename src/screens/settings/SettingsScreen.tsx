@@ -32,8 +32,11 @@ import { colors, fonts, radius, spacing } from '../../theme';
 // 機能の区別が伝わらなかったため撤廃。ユーザー指摘により統合）。
 export function SettingsScreen() {
   const navigation = useRootNavigation();
+  // Web版（Expo Web でこの画面自体をブラウザ表示した場合）はQR/バックアップ導線を出さず
+  // Webダッシュボードへの案内のみを表示するため、副題も内容に合わせる（ユーザー指摘）。
+  const subtitle = Platform.OS === 'web' ? 'Webダッシュボードへの案内' : 'Web連携・バックアップ';
   return (
-    <ScreenShell title="設定" subtitle="Web連携・バックアップ" onBack={() => navigation.goBack()}>
+    <ScreenShell title="設定" subtitle={subtitle} onBack={() => navigation.goBack()}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <WebConnectSection />
         {isAccountDeletionAvailable ? <DeleteAccountSection /> : null}
@@ -48,11 +51,15 @@ export function SettingsScreen() {
 // （別プロジェクト `web/`。カメラ読取は `web/src/components/QrScanner.tsx` に実装済み）への
 // 案内に差し替える（ユーザー指摘により変更）。
 function WebConnectSection() {
+  const isWeb = Platform.OS === 'web';
   return (
     <View style={styles.section}>
-      {Platform.OS === 'web' ? <WebDashboardNotice /> : <QrPairingBody />}
+      {isWeb ? <WebDashboardNotice /> : <QrPairingBody />}
       <AccountLinkSection />
-      <Text style={styles.footNote}>スマホの日記データはそのまま、安全に保たれます</Text>
+      {/* 「スマホの日記データは…」はネイティブ（QR/バックアップ操作がスマホ側で完結する）向けの
+          文言。Web版でもこのまま出すと「スマホ」という前提自体が噛み合わず自己矛盾になるため、
+          Web版では出さない（ユーザー指摘）。 */}
+      {isWeb ? null : <Text style={styles.footNote}>スマホの日記データはそのまま、安全に保たれます</Text>}
     </View>
   );
 }
@@ -69,16 +76,14 @@ function WebDashboardNotice() {
         スマホアプリの設定画面に表示されるQRコードを、Webダッシュボードのカメラで読み取ってください。
       </Text>
       {webUrl ? (
-        <Pressable
-          accessibilityRole="link"
-          accessibilityLabel="Webダッシュボードを開く"
+        <PrimaryButton
+          label="Webダッシュボードを開く"
+          variant="ghost"
           onPress={() => {
             setError(false);
             Linking.openURL(`${webUrl.replace(/\/+$/, '')}/connect`).catch(() => setError(true));
           }}
-        >
-          <Text style={styles.linkOk}>{webUrl}</Text>
-        </Pressable>
+        />
       ) : null}
       {error ? <Text style={styles.confirmError}>リンクを開けませんでした。</Text> : null}
     </View>
