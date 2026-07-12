@@ -109,8 +109,7 @@ graph TD
 | ⑤ | たしかめる（step4） | `create2` | モバイル | `.note-card`（生成文）、`.adjust-row`（調整）、`.mood-preview-row`、`.primary-btn`（保存） |
 | ⑥ | カレンダー/一覧 | `calendar` | モバイル | `.view-toggle`、`.cal-grid`、`.list-entry`、`.insight-card`（週次） |
 | ⑦ | 詳細＋AI対話 | `detail` | モバイル | `.diary-full-text`、`.mood-badge`、`.chat-bubble`、`.chat-input-row` |
-| ⑧ | 設定 | `settings` | モバイル | `.settings-row`（Webで見る／バックアップする） |
-| ⑨ | Webで見る（QR表示） | `webConnect` | モバイル | `.qr-card`/`.qr-pattern`、`.qr-timer-track`、`.ghost-btn`（Apple/Google） |
+| ⑧ | 設定（Web連携QR・バックアップ・アカウント削除を統合） | `settings` | モバイル | `.qr-card`/`.qr-pattern`、`.qr-timer-track`、`.ghost-btn`（Apple/Google）、`.settings-row`（アカウント削除） |
 | ⑩ | ダッシュボード（Web） | `dashboardView` | Web | `.dash-narrative`、`.mood-chart`、`.word-rank`、`.period-tabs` |
 | ⑪ | デバイスをつなぐ（Web） | `connectView` | Web | `.viewfinder`、`.connect-status`、`.ghost-btn`（Apple/Google） |
 
@@ -149,7 +148,6 @@ graph LR
   Home -->|⚙| Settings
   Home -->|hero| Mood --> Event --> Words --> Preview --> Home
   Calendar -->|エントリ選択| Detail
-  Settings -->|Webで見る| WebConnect
   Calendar -->|tab| Home
 ```
 
@@ -157,11 +155,11 @@ graph LR
 ```mermaid
 sequenceDiagram
   participant U as ユーザー
-  participant M as モバイル（⑨Webで見る）
+  participant M as モバイル（⑧設定）
   participant FN as Functions
   participant FS as Firestore
   participant W as Web（⑪つなぐ）
-  U->>M: 「Webで見る」を開く
+  U->>M: 設定画面を開く（QR表示）
   M->>FN: 短命トークン発行要求（要ログイン）
   FN->>FS: pairingトークン保存（TTL 60秒）
   FN-->>M: トークン→QR描画（.qr-pattern）
@@ -219,7 +217,7 @@ sequenceDiagram
 | 灯（保存後の演出） | Notion 要件定義書 §4.1／`features.md`「4ステップ日記フロー」／`visual-design.html` `.hero-zone .orb` |
 | AI対話 | `visual-design.html` ⑦ |
 | 週次/月次インサイト | `visual-design.html` ⑥⑩ |
-| QR認証 | `features.md`／`visual-design.html` ⑨⑪ |
+| QR認証 | `features.md`／`visual-design.html` ⑧⑪ |
 
 ---
 

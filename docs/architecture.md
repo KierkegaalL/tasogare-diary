@@ -64,8 +64,7 @@ src/
 │   ├── diary/          # mood / event / words / preview（4ステップ）
 │   ├── calendar/
 │   ├── detail/         # 詳細＋AI対話
-│   ├── settings/
-│   └── webConnect/     # QR表示
+│   └── settings/        # Web連携QR・バックアップ・アカウント削除
 ├── components/         # 再利用UI（Orb, Pebble, StepProgress, NoteCard 等）
 ├── stores/             # 状態（draft, auth, settings, entries）
 ├── services/           # firebase / functions / diary / pairing
@@ -86,7 +85,7 @@ src/
   - 案B: Expo Router（ファイルベース）。将来 Web 共有を強めるなら選択肢。導入コストと引き換えに規約が固い。
 - **構成**:
   - **Bottom Tabs**: ホーム / カレンダー（`visual-design.html` の `.tab-bar` に対応）。
-  - **Stack（各タブ上）**: 詳細（detail）、設定（settings）→ Webで見る（webConnect）。
+  - **Stack（各タブ上）**: 詳細（detail）、設定（settings。Web連携QR・バックアップ・アカウント削除を1画面に統合）。
   - **日記作成フロー**: ホームから push する **モーダル/独立スタック**（mood → event → words → preview）。フロー中は Tab を隠す。
 
 ### 3.2 ルート定義（概念）
@@ -96,7 +95,7 @@ RootStack
 │   ├─ HomeStack ( Home → Detail )
 │   └─ CalendarStack ( Calendar → Detail )
 ├─ DiaryFlow (modal) : Mood → Event → Words → Preview → (灯 演出)
-└─ SettingsStack : Settings → WebConnect
+└─ Settings : 設定（Web連携QR・バックアップ・アカウント削除を1画面に統合。screen.md 3.9）
 ```
 
 > **画面ID対応**（`visual-design.html` の実装ID）: `Mood`=`mood1`（きもち）／`Event`=`event1`（できごと）／`Words`=`combine1`（ことば）／`Preview`=`create2`（たしかめる）。`src/screens/diary/{mood,event,words,preview}` はこの対応に従う。
@@ -110,7 +109,6 @@ stateDiagram-v2
   Home --> Settings: ⚙
   Calendar --> Detail: エントリ選択
   Home --> Detail: 最近の日記
-  Settings --> WebConnect: 「Webで見る」
 
   state DiaryFlow {
     [*] --> Mood
@@ -155,7 +153,7 @@ stateDiagram-v2
 
 **認証プロバイダの抽象（Phase2 Auth）**: 認証は `AuthProvider` インターフェース（`init`/`signIn`/`signOut`）で抽象化し、実装を差し替える。
 - **ローカル匿名プロバイダ（既定）**: 端末に uid を発行・永続（AsyncStorage）。モバイルはログイン画面を持たず、uid を自動確立する（visual-design.html のとおり、サインインは「Webで見る」/バックアップ時のみ）。
-- **Firebase プロバイダ**: `EXPO_PUBLIC_FIREBASE_*` 設定を検出したら切り替える。**当面は配布しない**前提のため既定は **匿名認証（Firebase Auth Anonymous、JS SDK）** ＝ 開発ビルド不要・Expo Go 可で実 uid を確立する。uid は Firestore（entries/messages）のスコープに用いる。設定プロバイダ失敗時（例: 初回起動オフライン）は authStore がローカル匿名へフォールバックする。**将来、任意のタイミングでアプリ配布も考慮**しており、その際は恒久アカウント（Webで見る/バックアップ）向けに Apple/Google サインインを匿名アカウントへ **リンク昇格** する。**この昇格ロジック・ネイティブ資格情報取得はともに実装済み**（`firebaseAuthProvider.linkWith`＝`linkWithCredential`／`authStore.linkAccount`／`WebConnectScreen` の導線／エラーは `AuthLinkError` へ写像／`nativeCredentialSource.ts`＝Apple・Google 資格情報取得の中核＝ネイティブ非依存で単体テスト可能／`nativeCredentialSourceInstall.ts`＝実モジュール（`expo-apple-authentication`＋`expo-crypto`／`@react-native-google-signin`）束ね＋`installNativeCredentialSource()`）。資格情報は `OAuthCredentialSource` シーム（`src/services/auth/credentialSource.ts`）越しに `setCredentialSource` で差し込む。**有効化には開発ビルドが必要**（ネイティブモジュール要）。起動エントリでの呼び出しは**配線済み**（`index.ts` → `nativeAuthBootstrap` の `bootstrapNativeCredentialSource()`。`.env` の `EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1` のときだけ `installNativeCredentialSource()` を動的 require して呼ぶ）。bootstrap はネイティブモジュールを静的 import しないので App.tsx／Expo Go 既定バンドルへ引き込まず、フラグ未設定の Expo Go では `canLinkAccount` false で導線非表示。
+- **Firebase プロバイダ**: `EXPO_PUBLIC_FIREBASE_*` 設定を検出したら切り替える。**当面は配布しない**前提のため既定は **匿名認証（Firebase Auth Anonymous、JS SDK）** ＝ 開発ビルド不要・Expo Go 可で実 uid を確立する。uid は Firestore（entries/messages）のスコープに用いる。設定プロバイダ失敗時（例: 初回起動オフライン）は authStore がローカル匿名へフォールバックする。**将来、任意のタイミングでアプリ配布も考慮**しており、その際は恒久アカウント（Webで見る/バックアップ）向けに Apple/Google サインインを匿名アカウントへ **リンク昇格** する。**この昇格ロジック・ネイティブ資格情報取得はともに実装済み**（`firebaseAuthProvider.linkWith`＝`linkWithCredential`／`authStore.linkAccount`／設定画面（`SettingsScreen`）の導線／エラーは `AuthLinkError` へ写像／`nativeCredentialSource.ts`＝Apple・Google 資格情報取得の中核＝ネイティブ非依存で単体テスト可能／`nativeCredentialSourceInstall.ts`＝実モジュール（`expo-apple-authentication`＋`expo-crypto`／`@react-native-google-signin`）束ね＋`installNativeCredentialSource()`）。資格情報は `OAuthCredentialSource` シーム（`src/services/auth/credentialSource.ts`）越しに `setCredentialSource` で差し込む。**有効化には開発ビルドが必要**（ネイティブモジュール要）。起動エントリでの呼び出しは**配線済み**（`index.ts` → `nativeAuthBootstrap` の `bootstrapNativeCredentialSource()`。`.env` の `EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1` のときだけ `installNativeCredentialSource()` を動的 require して呼ぶ）。bootstrap はネイティブモジュールを静的 import しないので App.tsx／Expo Go 既定バンドルへ引き込まず、フラグ未設定の Expo Go では `canLinkAccount` false で導線非表示。
 
 ### 4.3 下書き（オフライン）永続
 - **実装済み**: MMKV はネイティブモジュールのため Expo Go では動かず、開発ビルド未導入の現段階では **案B（`AsyncStorage`、`services/storage.ts`）を採用**。`draftStore`（`src/stores/draftStore.ts`）を zustand の `persist` ミドルウェアで永続化し、アプリ再起動・強制終了後も下書き（mood/event/words/生成文/感情ラベル）が復元される。起動時のハイドレーション完了は `hasHydrated` フラグで管理し、`App.tsx` の起動ゲート（フォント/認証初期化と同様）で待ち合わせることで、復元前の入力が永続データで上書きされる競合を防止している。開発ビルド移行時は `KeyValueStorage` インターフェースを維持したまま MMKV アダプタへ差し替え可能。

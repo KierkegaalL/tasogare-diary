@@ -1,40 +1,238 @@
-import React, { useEffect, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useNetInfo } from '@react-native-community/netinfo';
+import QRCode from 'react-native-qrcode-svg';
 
 import { useRootNavigation } from '../../app/navigation/hooks';
 import { ScreenShell } from '../../components/ScreenShell';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { useLinkableAccountKinds } from '../../hooks/useAccountLink';
 import { deleteAccount, isAccountDeletionAvailable } from '../../services/account';
+import { createPairingToken, isPairingAvailable, pairingQrPayload } from '../../services/pairing';
+import { AuthLinkError, linkKindLabel } from '../../services/auth';
+import type { AccountLinkKind } from '../../services/auth';
 import { useAuthStore } from '../../stores/authStore';
 import { useEntriesStore } from '../../stores/entriesStore';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 // ⑧ 設定（screen.md 3.9）。
-// 「バックアップする」は独立機能ではなく、Apple/Google アカウント連携（U-13決定）の入口。
-// 連携UI（AccountLinkSection）は WebConnect 画面側にあるためそこへ遷移する（実装の重複を避ける）。
+// 「Webで見る」（QR）と「バックアップする」（Apple/Google連携、U-13決定）はいずれも
+// 「このデータを恒久化・別デバイスへ渡す」という同一目的のため、個別行→WebConnect画面へ
+// 遷移させる構成をやめ、設定画面に直接埋め込む（旧構成は両方が同じ画面に着地し、利用者に
+// 機能の区別が伝わらなかったため撤廃。ユーザー指摘により統合）。
 export function SettingsScreen() {
   const navigation = useRootNavigation();
-  // 連携が実際にできない環境（既定のExpo Go・導入済みユーザー等）では、遷移しても
-  // AccountLinkSection が何も描画せず「押しても何も起きない」導線になるため行自体を出さない
-  // （WebConnectScreen の AccountLinkSection と同じ「未対応の空UIを出さない」原則。reviewer指摘）。
-  const canBackup = useLinkableAccountKinds().length > 0;
   return (
     <ScreenShell title="設定" subtitle="Web連携・バックアップ" onBack={() => navigation.goBack()}>
-      <SettingsRow
-        label="Webで見る"
-        sub="パソコンから日記を見られるようにする"
-        onPress={() => navigation.navigate('WebConnect')}
-      />
-      {canBackup ? (
-        <SettingsRow
-          label="バックアップする"
-          sub="機種変更・削除に備えてアカウントを保存"
-          onPress={() => navigation.navigate('WebConnect')}
-        />
-      ) : null}
-      {isAccountDeletionAvailable ? <DeleteAccountSection /> : null}
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <WebConnectSection />
+        {isAccountDeletionAvailable ? <DeleteAccountSection /> : null}
+      </ScrollView>
     </ScreenShell>
+  );
+}
+
+// Webで見る（QR表示・screen.md 3.10）＋ バックアップ（Apple/Google連携、U-13決定）。
+// Web版（Expo Web でこの画面自体をブラウザ表示した場合）は「パソコンで読み取るQR」を
+// 表示しても自己矛盾になる（PC上でPC向けQRを表示してしまう）ため、Web ダッシュボード
+// （別プロジェクト `web/`。カメラ読取は `web/src/components/QrScanner.tsx` に実装済み）への
+// 案内に差し替える（ユーザー指摘により変更）。
+function WebConnectSection() {
+  return (
+    <View style={styles.section}>
+      {Platform.OS === 'web' ? <WebDashboardNotice /> : <QrPairingBody />}
+      <AccountLinkSection />
+      <Text style={styles.footNote}>スマホの日記データはそのまま、安全に保たれます</Text>
+    </View>
+  );
+}
+
+// Web ダッシュボードへの案内（screen.md 4.2 の /connect）。EXPO_PUBLIC_WEB_URL が
+// 設定されていればリンクを開けるようにする。
+function WebDashboardNotice() {
+  const webUrl = process.env.EXPO_PUBLIC_WEB_URL;
+  const [error, setError] = useState(false);
+  return (
+    <View style={styles.center}>
+      <Text style={styles.prompt}>パソコンでの閲覧はWebダッシュボードから</Text>
+      <Text style={styles.promptSub}>
+        スマホアプリの設定画面に表示されるQRコードを、Webダッシュボードのカメラで読み取ってください。
+      </Text>
+      {webUrl ? (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="Webダッシュボードを開く"
+          onPress={() => {
+            setError(false);
+            Linking.openURL(`${webUrl.replace(/\/+$/, '')}/connect`).catch(() => setError(true));
+          }}
+        >
+          <Text style={styles.linkOk}>{webUrl}</Text>
+        </Pressable>
+      ) : null}
+      {error ? <Text style={styles.confirmError}>リンクを開けませんでした。</Text> : null}
+    </View>
+  );
+}
+
+// QRペアリング本体（ネイティブのみ）。createPairingToken で短命トークン（60秒）を発行しQR表示。
+// 失効に合わせて自動再発行する。
+function QrPairingBody() {
+  const netInfo = useNetInfo();
+  const isOffline = netInfo.isConnected === false;
+
+  const [token, setToken] = useState<string | null>(null);
+  const [ttl, setTtl] = useState(60);
+  const [remaining, setRemaining] = useState(60);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const res = await createPairingToken();
+      setToken(res.token);
+      setTtl(res.ttlSeconds);
+      setRemaining(res.ttlSeconds);
+    } catch {
+      setError(true);
+      setToken(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // 初回発行。オフライン/未設定時は発行しない。
+  // refresh は同期的に setState するため、effect 内で直接呼ばず macrotask に逃がす
+  // （react-hooks/set-state-in-effect: effect 本体での同期 setState を避ける）。
+  useEffect(() => {
+    if (!isPairingAvailable || isOffline) return;
+    const id = setTimeout(() => void refresh(), 0);
+    return () => clearTimeout(id);
+  }, [refresh, isOffline]);
+
+  // 残り時間カウントダウン。0 になったら自動で再発行する。
+  useEffect(() => {
+    if (!token) return;
+    const id = setInterval(() => {
+      setRemaining((prev) => {
+        if (prev <= 1) {
+          void refresh();
+          return ttl;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [token, ttl, refresh]);
+
+  const body = () => {
+    if (!isPairingAvailable) {
+      return <Text style={styles.note}>この機能は現在利用できません（サーバ未設定）。</Text>;
+    }
+    if (isOffline) {
+      return <Text style={styles.note}>オフラインのためコードを発行できません。オンラインでお試しください。</Text>;
+    }
+    if (loading && !token) {
+      return (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.dusk} />
+          <Text style={styles.note}>コードを準備しています…</Text>
+        </View>
+      );
+    }
+    if (error) {
+      return (
+        <View style={styles.center}>
+          <Text style={styles.note}>コードの発行に失敗しました。</Text>
+          <PrimaryButton label="もう一度" variant="ghost" onPress={() => void refresh()} />
+        </View>
+      );
+    }
+    if (token) {
+      const ratio = Math.max(0, Math.min(1, remaining / ttl));
+      return (
+        <View style={styles.center}>
+          <View style={styles.qrCard} accessibilityLabel="ペアリング用QRコード">
+            <QRCode value={pairingQrPayload(token)} size={196} backgroundColor="transparent" color={colors.ink} />
+          </View>
+          <View style={styles.timerTrack}>
+            <View style={[styles.timerFill, { width: `${ratio * 100}%` }]} />
+          </View>
+          <Text style={styles.timerLabel}>60秒ごとに更新（残り{remaining}秒）</Text>
+        </View>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <>
+      <Text style={styles.prompt}>パソコンでも、書いた日記をそのまま見られます</Text>
+      <Text style={styles.promptSub}>下のコードを、パソコンのブラウザで読み取ってください</Text>
+      {body()}
+    </>
+  );
+}
+
+// 匿名アカウントを Apple/Google の恒久アカウントへ昇格する導線（environments.md）。
+// ネイティブ資格情報ソースが提供されている環境（対応した開発ビルド）でのみ表示する。
+// 既定（Expo Go）は canLinkAccount が false のため何も描画しない（未対応の空UIを出さない）。
+function AccountLinkSection() {
+  const linkAccount = useAuthStore((s) => s.linkAccount);
+  const [busy, setBusy] = useState<AccountLinkKind | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // 恒久化はまだ匿名のときだけ。既に Apple/Google 昇格済み、または導線が使えない環境では出さない。
+  const kinds = useLinkableAccountKinds();
+  if (kinds.length === 0) return null;
+
+  const onLink = async (kind: AccountLinkKind) => {
+    setBusy(kind);
+    setError(null);
+    setMessage(null);
+    try {
+      await linkAccount(kind);
+      setMessage(`${linkKindLabel(kind)} と連携しました。次からこのアカウントでサインインできます。`);
+    } catch (err) {
+      // キャンセルはエラー表示しない。
+      if (err instanceof AuthLinkError && err.code === 'cancelled') return;
+      setError(err instanceof Error ? err.message : '連携に失敗しました。');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <View style={styles.linkSection}>
+      <Text style={styles.linkTitle}>このデータを恒久アカウントに紐づける</Text>
+      <Text style={styles.linkSub}>
+        Apple／Google と連携すると、機種変更や再インストール後も同じ日記を引き継げます。
+      </Text>
+      {kinds.map((kind) => (
+        <PrimaryButton
+          key={kind}
+          label={busy === kind ? '連携しています…' : `${linkKindLabel(kind)} と連携`}
+          variant="ghost"
+          disabled={busy !== null}
+          onPress={() => void onLink(kind)}
+        />
+      ))}
+      {message && <Text style={styles.linkOk}>{message}</Text>}
+      {error && <Text style={styles.linkError}>{error}</Text>}
+    </View>
   );
 }
 
@@ -78,16 +276,18 @@ function DeleteAccountSection() {
 
   if (!confirming) {
     return (
-      <SettingsRow
-        label="アカウントを削除する"
-        sub="日記・対話・連携情報がすべて削除されます"
-        onPress={() => setConfirming(true)}
-      />
+      <View style={styles.section}>
+        <SettingsRow
+          label="アカウントを削除する"
+          sub="日記・対話・連携情報がすべて削除されます"
+          onPress={() => setConfirming(true)}
+        />
+      </View>
     );
   }
 
   return (
-    <View style={styles.confirmBox}>
+    <View style={[styles.section, styles.confirmBox]}>
       <ConfirmAnnouncement />
       <Text style={styles.confirmText}>
         本当に削除しますか？この操作は取り消せません。日記・対話・連携情報がすべて削除されます。
@@ -147,6 +347,8 @@ function SettingsRow({ label, sub, onPress }: { label: string; sub: string; onPr
 }
 
 const styles = StyleSheet.create({
+  scroll: { gap: spacing.xl, paddingBottom: spacing.xl },
+  section: { gap: spacing.md },
   row: {
     borderRadius: radius.card,
     borderWidth: 1,
@@ -176,4 +378,56 @@ const styles = StyleSheet.create({
     backgroundColor: colors.heavy,
   },
   dangerButtonLabel: { fontFamily: fonts.uiBold, fontSize: 14, color: '#ffffff' },
+  prompt: { fontFamily: fonts.display, fontSize: 15, color: colors.ink, textAlign: 'center' },
+  promptSub: {
+    fontFamily: fonts.uiRegular,
+    fontSize: 12,
+    color: colors.inkFaint,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    marginBottom: spacing.xl,
+  },
+  center: { alignItems: 'center', gap: spacing.md },
+  qrCard: {
+    backgroundColor: colors.paperSoft,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: spacing.xl,
+  },
+  timerTrack: {
+    width: 196,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.line,
+    overflow: 'hidden',
+    marginTop: spacing.sm,
+  },
+  timerFill: { height: 4, borderRadius: 2, backgroundColor: colors.dusk },
+  timerLabel: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.inkFaint },
+  note: { fontFamily: fonts.uiRegular, fontSize: 12, color: colors.inkFaint, textAlign: 'center' },
+  linkSection: {
+    marginTop: spacing.xxl,
+    paddingTop: spacing.xl,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    gap: spacing.sm,
+  },
+  linkTitle: { fontFamily: fonts.display, fontSize: 14, color: colors.ink, textAlign: 'center' },
+  linkSub: {
+    fontFamily: fonts.uiRegular,
+    fontSize: 11,
+    color: colors.inkFaint,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  linkOk: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.inkSoft, textAlign: 'center' },
+  linkError: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.dusk, textAlign: 'center' },
+  footNote: {
+    fontFamily: fonts.uiRegular,
+    fontSize: 10.5,
+    color: colors.inkFaint,
+    textAlign: 'center',
+    marginTop: spacing.xxl,
+  },
 });
