@@ -1,6 +1,6 @@
 # Memory — たそがれ日記 プロジェクト引き継ぎドキュメント
 
-最終更新: 2026-07-12（ネイティブ資格情報取得の運用配線＝PR #45。**iOS実機でGoogle連携の疎通確認まで完了**。7件の詰まりを解消: ①`pod install`のAppCheckCore未モジュール化エラー→`expo-build-properties`の`useFrameworks: 'static'`、②無料Apple ID（Personal Team）でのSign in with Apple provisioning失敗→`EXPO_PUBLIC_APPLE_SIGNIN_ENABLED`フラグで既定無効化、③Googleネイティブサインインが`iosClientId`未指定でクラッシュ→`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`追加、④URL scheme未登録エラー（`app-1-...-ios-...`形式）→Firebase **iOS アプリ**のApp ID（`EXPO_PUBLIC_FIREBASE_IOS_APP_ID`。Webアプリの`EXPO_PUBLIC_FIREBASE_APP_ID`とは別物）から派生するURL schemeを`app.config.ts`の`withGoogleSignInAppIdUrlScheme`で追加登録、⑤`account.google.com`で404→`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`に④の派生URL scheme文字列を誤設定していたミスが原因（実際のOAuth CLIENT_IDに訂正）、⑥日記保存失敗（Worker再デプロイ漏れが原因、コード変更なし）、⑦Expo Webで`EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1`設定時に`@react-native-google-signin`未実装でエラー→`nativeAuthBootstrap.ts`に`Platform.OS === 'web'`ガードを追加。診断のためcatch節に安全なログ（uid・本文・idToken等は含めずcode/name等のみ）を複数箇所で恒久化。reviewerチェックループ通過済み・push済み。develop側で先にマージされたgenerateInsightの定期事前生成（Cron Triggers・PR #44・コミットd5ab99a）を本ブランチへマージ済み）
+最終更新: 2026-07-12（`develop`はPR #50まで反映済み。直近の主な作業: オフライン保存タイムアウト対応・reviewer軽微所見2件解消・設定画面Web版の文言/導線修正・WebのAppleサインイン無効化。開発環境整備として`web/.env.local`を新規作成しWebダッシュボードをFirebase接続、モバイル`.env`に`EXPO_PUBLIC_WEB_URL`を設定。詳細は下記「完了済み作業/残タスク」参照）
 
 > このファイルは ClaudeCode がセッションをまたいで状況を引き継ぐための**状況記録ドキュメント**。ルール本体（振る舞いの指示）は [CLAUDE.md](CLAUDE.md) と `.claude/rules/` を正とし、本ファイルはそれらを前提にした**現在地のスナップショット**を保持する。矛盾があれば CLAUDE.md / `.claude/rules/` が優先。
 >
@@ -61,7 +61,7 @@ tasogare-diary/
 - **CI/CD**: 現状 GitHub Actions 等の自動CIは未構築。lint/型/テストはローカル hook 実行のみ。
 - **rtk（Rust Token Killer）**: ユーザーのグローバル環境にトークン節約プロキシが導入済み（`~/.claude/RTK.md`）。`git`/`jest` 等のコマンドは hook 経由で自動的に `rtk <cmd>` へ書き換わる。**注意**: `npx jest` を rtk 経由で叩くと出力が `PASS(n) FAIL(n)` に圧縮され、スイートのコンパイル失敗（0件扱い）を見落とす。詳細を見たい時は `rtk proxy npx jest ...` で生出力を取得する。
 - **Firebase Hosting デプロイ**: `firebase.json`（`hosting`セクション）＋`.firebaserc`（`staging`/`prod`エイリアス）で定義済み。実プロジェクト作成・CI組み込みは未着手。
-- **Cloudflare Workers デプロイ**: `worker/` は `wrangler deploy`（`npm --prefix worker run deploy`）で手動デプロイ。Cron Triggers 等の定期実行は未設定（残タスク B-3）。
+- **Cloudflare Workers デプロイ**: `worker/` は `wrangler deploy`（`npm --prefix worker run deploy`）で手動デプロイ。定期実行（`generateInsight`の事前生成）は Cron Triggers（`wrangler.jsonc`の`triggers.crons`）で実装・`develop`へマージ済み（`worker/src/cron.ts`。2026-07-12）。
 
 ## 重要な技術情報
 
@@ -124,16 +124,17 @@ tasogare-diary/
 - モバイル: 匿名→Apple/Googleリンク昇格ロジック（`linkWithCredential`・`AuthLinkError`写像・`WebConnectScreen`導線）
 - モバイル: **ネイティブ資格情報取得の実装**（`nativeCredentialSource.ts`＝中核ロジック・`nativeCredentialSourceInstall.ts`＝実モジュール束ね。Apple: `expo-apple-authentication`+`expo-crypto`のnonceフロー、Google: `@react-native-google-signin`）。**起動エントリでの `installNativeCredentialSource()` 呼び出しも配線済み**（`index.ts`→`nativeAuthBootstrap.ts`の`bootstrapNativeCredentialSource()`。`EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1`時のみ`nativeCredentialSourceInstall`を動的requireして呼ぶ＝Expo Goではネイティブモジュール未評価で起動が壊れない）。実機疎通確認は開発ビルドが要るためユーザー実施待ち
 
-- **設定画面のアカウント削除UI**（コミット6b21e88、未push）: `DeleteAccountSection`を追加。画面内2段階確認→`deleteAccount()`→`entriesStore.teardown()`→`authStore.signOut()`（新匿名セッション確立）→Home遷移。reviewerが「旧uidデータの一瞬残留」「signOut失敗をdeleteAccount失敗と誤表示」の重大指摘2件を発見→修正（`authStore.signOut()`をrethrow化、entriesStore即時クリア）
+- **設定画面のアカウント削除UI**（コミット6b21e88、`develop`へマージ済み）: `DeleteAccountSection`を追加。画面内2段階確認→`deleteAccount()`→`entriesStore.teardown()`→`authStore.signOut()`（新匿名セッション確立）→Home遷移。reviewerが「旧uidデータの一瞬残留」「signOut失敗をdeleteAccount失敗と誤表示」の重大指摘2件を発見→修正（`authStore.signOut()`をrethrow化、entriesStore即時クリア）
 - **設定画面「バックアップする」行の実装**（PR #42）: ユーザーへ方針確認のうえ、WebConnect画面（既存のAccountLinkSection）へ遷移する行を追加。実装過程で「連携不可環境（既定のExpo Go等）で押しても何も起きない」バグをreviewerが発見→`useLinkableAccountKinds`（新規フック）でWebConnectScreenと判定を共有し、連携可能な場合のみ行を表示するよう修正
-- **設定画面へのWebConnect統合**（PR #46・`develop`へマージ待ち）: 「Webで見る」「バックアップする」の2行が同じWebConnect画面に着地し区別がつかないとのユーザー指摘を受け、旧`WebConnectScreen`（QR表示＋`AccountLinkSection`）を`SettingsScreen`へ直接統合しファイル自体を削除（`RootNavigator`/`navigation/types.ts`からもルート削除）。アカウント削除セクションはWeb連携セクションの下に配置、`ScrollView`でラップ。`docs/screen.md`（3.9/3.10統合）・`docs/architecture.md`・`docs/design/basic-design.md`・`docs/api-contract.md`・`web/README.md`・`environments.md`のWebConnect参照を更新。reviewer一次チェックでdocs修正漏れ5件、二次チェックで追加2件を指摘→修正済み
+- **設定画面へのWebConnect統合**（PR #46・`develop`へマージ済み）: 「Webで見る」「バックアップする」の2行が同じWebConnect画面に着地し区別がつかないとのユーザー指摘を受け、旧`WebConnectScreen`（QR表示＋`AccountLinkSection`）を`SettingsScreen`へ直接統合しファイル自体を削除（`RootNavigator`/`navigation/types.ts`からもルート削除）。アカウント削除セクションはWeb連携セクションの下に配置、`ScrollView`でラップ。`docs/screen.md`（3.9/3.10統合）・`docs/architecture.md`・`docs/design/basic-design.md`・`docs/api-contract.md`・`web/README.md`・`environments.md`のWebConnect参照を更新。reviewer一次チェックでdocs修正漏れ5件、二次チェックで追加2件を指摘→修正済み
 - **設定画面のWeb版QR非表示化**（同PR #46・追加コミット）: `SettingsScreen`をExpo Webでブラウザ表示した場合、「パソコンで読み取るQR」をパソコン上に表示してしまう自己矛盾に気づいたユーザー指摘を受け、`WebConnectSection`を`Platform.OS === 'web'`で分岐。Web版はQR発行ロジック（`QrPairingBody`、ネイティブのみ）を呼ばず、代わりにWebダッシュボード（`web/`の`/connect`。カメラQR読取は実装済み）への案内（`WebDashboardNotice`。`EXPO_PUBLIC_WEB_URL`設定時はリンク付き）を表示。カメラスキャナの二重実装を避ける方針
-- **設定画面Web版の文言・導線修正**（未push・ブランチ未作成）: 上記Web版導線について、①ダッシュボードへの遷移がテキストリンク（`styles.linkOk`のPressable）で目立たず「ボタンが見つからない」と指摘→`PrimaryButton`（label「Webダッシュボードを開く」）に変更、②ネイティブ向け副題「Web連携・バックアップ」と注記「スマホの日記データはそのまま、安全に保たれます」がWeb版でも無条件表示され内容と噛み合っていない（QR/バックアップがスマホ側で完結する前提の文言のため）と指摘→`SettingsScreen`の副題を`Platform.OS === 'web'`のときのみ「Webダッシュボードへの案内」に、注記も同条件で非表示に変更。**ネイティブ側の表示・文言は一切変更していない**（ユーザーからモバイル版に手を入れないよう明示指示あり）。テスト2件追加・型チェック/lint/全141テスト通過。**なお`EXPO_PUBLIC_WEB_URL`はローカル`.env`で空のままのため、ボタン自体は開発環境でまだ表示されない**（値設定はユーザー確認待ち、コードは対応済み）
+- **設定画面Web版の文言・導線修正**（PR #49・`develop`へマージ済み）: 上記Web版導線について、①ダッシュボードへの遷移がテキストリンク（`styles.linkOk`のPressable）で目立たず「ボタンが見つからない」と指摘→`PrimaryButton`（label「Webダッシュボードを開く」）に変更、②ネイティブ向け副題「Web連携・バックアップ」と注記「スマホの日記データはそのまま、安全に保たれます」がWeb版でも無条件表示され内容と噛み合っていない（QR/バックアップがスマホ側で完結する前提の文言のため）と指摘→`SettingsScreen`の副題を`Platform.OS === 'web'`のときのみ「Webダッシュボードへの案内」に、注記も同条件で非表示に変更。**ネイティブ側の表示・文言は一切変更していない**（ユーザーからモバイル版に手を入れないよう明示指示あり）。テスト2件追加・型チェック/lint/全141テスト通過。**`EXPO_PUBLIC_WEB_URL`はローカル`.env`に`http://localhost:3000`を設定済み**（`web/.env.local`もモバイルの値から転記して作成し、Web ダッシュボード側もFirebase接続済み。ボタン表示・実データ確認とも可能な状態）
+- **WebのAppleサインインボタン無効化**（PR #50・`develop`へマージ済み）: Appleサインインは有料Developer Program未加入のため現状未実装（`environments.md`）。`web/src/app/connect/page.tsx`のAppleボタンを`disabled`にし、注記に「今後対応予定」の文言を追加。`aria-disabled`の冗長付与をreviewer指摘で削除
 - **過去日記一覧の仮想化**（PR #41）: `CalendarScreen`のリストモードを`ScrollView`+`.map()`から`SectionList`（`VirtualizedList`ベース）へ書き換え、constraints.md「リスト表示は仮想化」要件を充足。`EntryRow`を`React.memo`化・`onOpen`を`useCallback`で安定化
 - **entries.source/adjustments の追跡実装**（PR #40）: `entries.source`（生成モデル/プロンプト版）・`entries.adjustments`（適用調整の履歴）を`DiaryEntry`型・保存処理に実装。worker側`handleGenerateDiary`/`handleAdjustDiary`にモデルID返却を追加、保存ロジックは`buildDiaryEntry.ts`へ純粋関数として切り出し。実装過程で「↻選び直す」時に`PreviewScreen`が再マウントされず古い調整結果が持ち越されるバグを発見・修正（React公式のレンダー中state調整パターン）。`docs/api-contract.md`のモデル名記述漏れ（`claude-sonnet-5`残存）も併せて修正
 - **docsとの整合チェック**（2026-07-11）: 実装×設計書（api-contract.md/architecture.md/data.md/screen.md）を全面照合し、下記の残タスクを確定
 
-直近PR: #42（設定画面バックアップ行）・#41（過去日記一覧の仮想化）・#40（entries.source/adjustments）・#39（ネイティブ資格情報取得）・#38（リンク昇格ロジック）・#37（過去3ヶ月タブ）。#42/#41/#40は2026-07-11時点でオープン、#39/#38/#37は`develop`へマージ済み。
+直近PR（すべて`develop`へマージ済み）: #50（Web Appleサインイン無効化）・#49（設定画面Web版文言修正）・#48（wordsKey/chatOpening重複解消）・#47（オフライン保存タイムアウト）・#46（設定画面WebConnect統合）・#45（ネイティブ資格情報運用配線）・#44（Cron事前生成）・#43（低優先度残タスク4件）・#42（設定画面バックアップ行）・#41（過去日記一覧の仮想化）・#40（entries.source/adjustments）。
 
 ### 残タスク（2026-07-11 実装×設計書 整合チェックで確定。新規発見分は全てPR #40〜#42で解消）
 
