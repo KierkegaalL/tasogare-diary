@@ -40,7 +40,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     favicon: './assets/favicon.png',
   },
   // ネイティブサインイン（配布ビルド用）。Expo Go では未適用（開発ビルド／prebuild でのみ効く）。
-  plugins: ['expo-font', 'expo-apple-authentication', googleSignInPlugin],
+  plugins: [
+    'expo-font',
+    'expo-apple-authentication',
+    googleSignInPlugin,
+    // iOS の pod install で「AppCheckCore が GoogleUtilities/RecaptchaInterop に依存するが
+    // モジュールを定義していない」エラーになる（@react-native-google-signin 由来）。
+    // use_frameworks! :linkage => :static を Podfile に追加すると解消する
+    // （ios/ は expo prebuild のたびに再生成されるため Podfile を直接編集しても消える。config
+    // plugin 経由が正しい直し方）。
+    ['expo-build-properties', { ios: { useFrameworks: 'static' } }],
+  ],
   // クライアントに埋め込むのは公開可能な値のみ。シークレットは EAS Secrets / Functions 側で管理。
   extra: {
     appEnv: APP_ENV,

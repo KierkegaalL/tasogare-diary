@@ -1,6 +1,6 @@
 # Memory — たそがれ日記 プロジェクト引き継ぎドキュメント
 
-最終更新: 2026-07-12（ネイティブ資格情報取得の運用配線を実装＝`index.ts`→`nativeAuthBootstrap`で`EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1`時のみ`installNativeCredentialSource()`を動的requireして呼ぶ配線。`feature/native-credential-wiring`ブランチにコミット予定。※Cron Triggers実装は別PR #44）
+最終更新: 2026-07-12（ネイティブ資格情報取得の運用配線＝PR #45。実機疎通確認（iOS開発ビルド）で`pod install`が`AppCheckCore`未モジュール化エラーで失敗→`expo-build-properties`の`useFrameworks: 'static'`で解消し同PRへ追加コミット予定。Apple有料Developer Program要件のためGoogleのみで検証中。※Cron Triggers実装は別PR #44）
 
 > このファイルは ClaudeCode がセッションをまたいで状況を引き継ぐための**状況記録ドキュメント**。ルール本体（振る舞いの指示）は [CLAUDE.md](CLAUDE.md) と `.claude/rules/` を正とし、本ファイルはそれらを前提にした**現在地のスナップショット**を保持する。矛盾があれば CLAUDE.md / `.claude/rules/` が優先。
 >
@@ -94,6 +94,10 @@ tasogare-diary/
 | Web: dev / build / 型 | `npm --prefix web run dev`（:3000） / `npm --prefix web run build` / `npm --prefix web run typecheck` |
 | Firebase Hosting デプロイ | `firebase deploy --only hosting --project staging\|prod`（`--project` 必須・default alias 未設定） |
 | 実装後チェックループ | `/check-loop`（reviewer サブエージェントで指摘0件まで反復） |
+
+### iOS 開発ビルド作成時の既知の詰まりどころ
+- **`pod install` が UTF-8 ロケール警告で落ちる**: `LANG`/`LC_ALL` が未設定だと Ruby の `unicode_normalize` がクラッシュする。シェル設定ファイル（`~/.zshrc` 等）に `export LANG=en_US.UTF-8` / `export LC_ALL=en_US.UTF-8` を追記し、**新しいターミナルセッション**（設定ファイルを実際に読み込むログインシェル）で再実行する。
+- **`pod install` が `AppCheckCore`/`GoogleUtilities`/`RecaptchaInterop` の未モジュール化エラーで失敗**（`@react-native-google-signin/google-signin` 由来）: `app.config.ts` の `plugins` に `expo-build-properties`（`{ ios: { useFrameworks: 'static' } }`）を追加して解消（PR #45）。`ios/` は `expo prebuild` のたびに再生成される（`.gitignore` 済み）ため、`ios/Podfile` を直接編集しても消える。config plugin 経由が正しい直し方。
 
 ### 認証情報・鍵の所在
 - Firebase クライアント設定: `.env`（gitignore済み。ローカルのみ）
