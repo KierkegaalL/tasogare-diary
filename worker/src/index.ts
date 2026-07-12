@@ -259,9 +259,22 @@ export async function handleChat(env: Env, llm: LlmProvider, uid: string, data: 
 // ==========================================================================
 // 3.4 chatOpening — 初回問いかけ
 // ==========================================================================
-async function handleChatOpening(llm: LlmProvider, data: Record<string, unknown>) {
-  const mood = typeof data.mood === 'string' ? data.mood : null;
-  const bodyText = typeof data.bodyText === 'string' ? data.bodyText : '';
+// handleChat と同じ理由（api-contract.md 3.4 備考）でサーバ側再取得を優先する。
+// entryId から取得できればそれを正とし、クライアント送信の mood/bodyText は
+// entryId 不正・エントリ削除済み等（getEntry が null）の場合のみフォールバックとして使う
+// （クライアントは自分の日記データしか持てないため実害は小さいが、handleChat との非対称を
+// 解消し取得経路を揃える。reviewer所見）。
+// テストのため export（handleChat と同様の方針）。
+export async function handleChatOpening(env: Env, llm: LlmProvider, uid: string, data: Record<string, unknown>) {
+  const entryId = typeof data.entryId === 'string' ? data.entryId : undefined;
+  const entry = entryId
+    ? await getEntry(env, uid, entryId).catch((err: unknown) => {
+        console.warn('getEntry failed, falling back', (err as Error)?.name);
+        return null;
+      })
+    : null;
+  const mood = entry ? entry.mood : typeof data.mood === 'string' ? data.mood : null;
+  const bodyText = entry ? entry.bodyText : typeof data.bodyText === 'string' ? data.bodyText : '';
 
   const userText = JSON.stringify({
     mood,
@@ -302,7 +315,11 @@ const ROUTES: Record<string, Route> = {
     requireAuth: true,
     handler: (env, uid, data) => handleChat(env, getLlmProvider(env), uid as string, data),
   },
-  '/chatOpening': llmRoute(handleChatOpening),
+  // chatOpening も同様に文脈補完（getEntry）のため env・uid を使う（handleChat と経路を統一）。
+  '/chatOpening': {
+    requireAuth: true,
+    handler: (env, uid, data) => handleChatOpening(env, getLlmProvider(env), uid as string, data),
+  },
   // 週次/月次まとめ。LLM と uid（Firestore の集計・キャッシュ）の両方を使う。
   '/generateInsight': {
     requireAuth: true,

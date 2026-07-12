@@ -125,8 +125,9 @@ export async function chat(req: ChatRequest): Promise<ChatResponse> {
   return { reply: CHAT_REPLIES[index] ?? CHAT_REPLIES[0]!, promptVersion: 'chat-v1-mock' };
 }
 
-// モック: 対話の最初の問いかけ（空対話時の AI 初回メッセージ）。
+// モック: 対話の最初の問いかけ（空対話時の AI 初回メッセージ）。entryId はモック接続時は未使用。
 export async function chatOpening(ctx: {
+  entryId: string;
   mood: MoodLevel | null;
   bodyText: string;
 }): Promise<ChatResponse> {

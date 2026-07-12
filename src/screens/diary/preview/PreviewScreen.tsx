@@ -18,6 +18,7 @@ import { LitOverlay } from '../../../components/LitOverlay';
 import { colors, fonts, moodColor, moodLabel, radius, spacing } from '../../../theme';
 import type { DiaryWord } from '../../../types/diary';
 import { todayISO } from '../../../utils/date';
+import { wordsKey } from '../../../utils/diaryWords';
 import { buildDiaryEntry } from './buildDiaryEntry';
 
 const ADJUSTMENTS: { label: string; instruction: AdjustInstruction }[] = [
@@ -71,7 +72,7 @@ export function PreviewScreen() {
 
   // 「選び直す」（Words画面へnavigate）は画面をアンマウントしない（stack上に既存のPreviewへ戻るだけ）ため、
   // words が変わったことを検知するキー。変化時に下の useEffect で override 等をリセットする。
-  const wordsKey = useMemo(() => requestWords.map((w) => `${w.category}:${w.text}`).join('|'), [requestWords]);
+  const currentWordsKey = useMemo(() => wordsKey(requestWords), [requestWords]);
 
   const gen = useGenerateDiary(requestWords, date, !isOffline);
   const adjust = useAdjustDiary();
@@ -95,9 +96,9 @@ export function PreviewScreen() {
   // 画面がアンマウントされない（stack上に既存のPreviewへ戻るだけ）ため useState の初期値だけでは
   // 対応できない（レビュー指摘）。レンダー中に state を調整する公式パターンで対応する
   // （https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes）。
-  const [prevWordsKey, setPrevWordsKey] = useState(wordsKey);
-  if (wordsKey !== prevWordsKey) {
-    setPrevWordsKey(wordsKey);
+  const [prevWordsKey, setPrevWordsKey] = useState(currentWordsKey);
+  if (currentWordsKey !== prevWordsKey) {
+    setPrevWordsKey(currentWordsKey);
     setOverride(null);
     setAppliedAdjustments([]);
     setSaveError(false);

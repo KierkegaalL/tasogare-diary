@@ -80,7 +80,7 @@ describe('diaryApi.chat (mock)', () => {
   });
 
   it('chatOpening は感情に応じた最初の問いかけを返す', async () => {
-    const res = await chatOpening({ mood: 'heavy', bodyText: '本文' });
+    const res = await chatOpening({ entryId: 'e1', mood: 'heavy', bodyText: '本文' });
     expect(res.reply).toContain('しんどい一日');
     expect(res.reply).toContain('今はどんな気持ちですか？');
   });
