@@ -13,7 +13,7 @@ export type DiaryFlowNavigation = CompositeNavigationProp<
 
 export const useDiaryFlowNavigation = () => useNavigation<DiaryFlowNavigation>();
 
-// ルートスタック直下（Home/Settings/Detail/WebConnect）のナビゲーション型。
+// ルートスタック直下（Home/Settings/Detail）のナビゲーション型。
 export type RootNavigation = NativeStackNavigationProp<RootStackParamList>;
 
 export const useRootNavigation = () => useNavigation<RootNavigation>();

@@ -19,8 +19,7 @@
 | － | 灯（演出） | － | オーバーレイ | 3.6 |
 | ⑥ | カレンダー/一覧 | `calendar` | モバイル | 3.7 |
 | ⑦ | 詳細＋AI対話 | `detail` | モバイル | 3.8 |
-| ⑧ | 設定 | `settings` | モバイル | 3.9 |
-| ⑨ | Webで見る（QR） | `webConnect` | モバイル | 3.10 |
+| ⑧ | 設定（Webで見る／バックアップ統合） | `settings` | モバイル | 3.9 |
 | ⑩ | ダッシュボード | `dashboardView` | Web | 4.1 |
 | ⑪ | デバイスをつなぐ | `connectView` | Web | 4.2 |
 | ⑫ | 日記一覧（Web） | `entriesView` | Web | 4.3 |
@@ -55,7 +54,6 @@ graph LR
   Home -->|⚙| Settings
   Calendar -->|エントリ| Detail
   Home -->|最近の日記| Detail
-  Settings -->|Webで見る| WebConnect
   Preview -->|↻ 選び直す| Words
 ```
 > 詳細な戻る遷移・状態は [architecture.md](architecture.md) 第3.3節を参照。
@@ -134,18 +132,15 @@ graph LR
 - **遷移**: 戻る→前画面（Calendar/Home）。
 
 ### 3.9 設定（`settings`）
-- **目的**: Web連携・バックアップ・アカウント削除等の入口。
-- **要素**: ヘッダー（戻る＋「設定」）／行（`.settings-row`）: 「Webで見る」（`.settings-row-sub`「パソコンから日記を見られるようにする」）／「バックアップする」（「機種変更・削除に備えてアカウントを保存」）／「アカウントを削除する」（「日記・対話・連携情報がすべて削除されます」）。
-- **遷移**: 「Webで見る」→WebConnect。バックアップ→**Apple/Google アカウント連携で担保（U-13決定）**。
-- **実装メモ（実装済み）**: `src/screens/settings/SettingsScreen.tsx`。連携UI（Apple/Google リンク昇格。`AccountLinkSection`）は WebConnect 画面側に既に実装済みのため重複実装を避け、**「バックアップする」行も WebConnect へ遷移する**（U-13決定の「画面上のアクションは再認証確認程度」を、独立した確認UIではなく既存の連携導線への遷移で満たす設計判断）。**「バックアップする」行は連携が実際に可能な場合のみ表示する**（`useLinkableAccountKinds`＝`src/hooks/useAccountLink.ts`。匿名アカウントかつネイティブ資格情報ソース導入済みの開発ビルドが条件、`environments.md`）。既に恒久化済み、または既定の Expo Go 等で導入前の環境では行自体を出さない（遷移先で `AccountLinkSection` が何も描画しない「押しても何も起きない」導線を避けるため。WebConnect 側の「未対応の空UIを出さない」原則と統一）。**「アカウントを削除する」行はタップで画面内に確認UI（`.settings-row` の代わりに警告文＋「本当に削除する」／「キャンセル」）を表示する2段階確認**（`DeleteAccountSection`）。確認後の削除は `deleteAccount()`（`src/services/account.ts`）→成功時は `authStore.signOut()`（削除済みセッションをクリアし新しい匿名セッションを確立）→ `MainTabs`/`Home` へ遷移。失敗時は確認UIのままエラー文を表示し再試行できる。**Worker 未設定時（モック運用）は行自体を表示しない**（`isAccountDeletionAvailable`。削除は不可逆なため「削除できたふり」をしない方針）。
+> **改訂（2026-07-12）**: 旧構成（「Webで見る」「バックアップする」の2行→いずれもWebConnect画面へ遷移）は、両方が同じ画面に着地し利用者に機能の区別が伝わらないというユーザー指摘により撤廃。**Webで見る（QR）とバックアップ（Apple/Google連携）は個別画面ではなく設定画面に直接埋め込む**（旧 `webConnect` 画面／3.10節は本節に統合し廃止）。
+- **目的**: Web連携（QR）・バックアップ（Apple/Google連携）・アカウント削除の提供。
+- **要素**: ヘッダー（戻る＋「設定」）／本文はスクロール可能。上から: **Web連携セクション**（説明「パソコンでも、書いた日記をそのまま見られます」＋「下のコードを、パソコンのブラウザで読み取ってください」／QR（`.qr-card`）／タイマー（`.qr-timer-track`/`.qr-timer-fill`+`.qr-timer-label`「60秒ごとに更新」）／注記「スマホの日記データはそのまま、安全に保たれます」）→ **バックアップセクション**（「このデータを恒久アカウントに紐づける」＋Apple/Google連携ボタン。**Apple/Google アカウント連携で担保（U-13決定）**）→ 「アカウントを削除する」（`.settings-row`「日記・対話・連携情報がすべて削除されます」）。
+- **遷移**: 画面遷移なし（すべて本画面内で完結）。アカウント削除成功時のみ `MainTabs`/`Home` へ遷移。
+- **実装メモ（実装済み）**: `src/screens/settings/SettingsScreen.tsx`。QR発行ロジック（`createPairingToken`・60秒毎再発行）と連携UI（Apple/Google リンク昇格。`AccountLinkSection`）を同ファイル内の `WebConnectSection`/`AccountLinkSection` として実装（旧 `WebConnectScreen.tsx` を統合・削除）。**バックアップの連携ボタンは連携が実際に可能な場合のみ表示する**（`useLinkableAccountKinds`＝`src/hooks/useAccountLink.ts`。匿名アカウントかつネイティブ資格情報ソース導入済みの開発ビルドが条件、`environments.md`）。既に恒久化済み、または既定の Expo Go 等で導入前の環境では連携ボタンを出さない（「押しても何も起きない」導線を避けるため）。**「アカウントを削除する」行はタップで画面内に確認UI（`.settings-row` の代わりに警告文＋「本当に削除する」／「キャンセル」）を表示する2段階確認**（`DeleteAccountSection`）。確認後の削除は `deleteAccount()`（`src/services/account.ts`）→成功時は `authStore.signOut()`（削除済みセッションをクリアし新しい匿名セッションを確立）→ `MainTabs`/`Home` へ遷移。失敗時は確認UIのままエラー文を表示し再試行できる。**Worker 未設定時（モック運用）は行自体を表示しない**（`isAccountDeletionAvailable`。削除は不可逆なため「削除できたふり」をしない方針）。
+- **データ**: Functions が `pairings` に短命トークン発行（TTL 60s、[data.md](data.md) 第3.6節）。60秒ごとに再発行しQR更新。
+- **状態**: QR発行失敗＝再試行。タイマー満了＝自動更新。オフライン時はQR発行を行わずその旨を表示。
+- **A11y**: QRは装飾。代替としてApple/Googleサインインを常時提供。
 - **将来**: reduced-motion 等の設定項目を追加。
-
-### 3.10 Webで見る（QR）（`webConnect`）
-- **目的**: PC でダッシュボードを見るためのデバイス連携（QR 表示）。
-- **要素**: ヘッダー（戻る＋「Webで見る」）／説明（`.prompt-text`「パソコンでも、書いた日記をそのまま見られます」＋`.prompt-sub`「下のコードを、パソコンのブラウザで読み取ってください」）／QR（`.qr-card` + `.qr-pattern` + `.qr-finder`）／タイマー（`.qr-timer-track`/`.qr-timer-fill` + `.qr-timer-label`「60秒ごとに更新」）／「または」＋Apple/Google サインイン（`.ghost-btn`）／注記「スマホの日記データはそのまま、安全に保たれます」。
-- **データ**: Functions が `pairings` に短命トークン発行（TTL 60s、[data.md](data.md) 第3.6節）。60秒ごとに再発行し QR 更新。
-- **状態**: 要ログイン（未ログイン時はサインイン導線）。発行失敗＝再試行。タイマー満了＝自動更新。
-- **A11y**: QR は装飾。代替として Apple/Google サインインを常時提供。
 
 ---
 
@@ -165,10 +160,10 @@ graph LR
 - **フロー**: QR トークンを Functions が照合→カスタム認証トークン発行→サインイン（[architecture.md](architecture.md) 第3.4節相当のシーケンス、詳細は api-contract.md）。
 - **状態**: 待機/読取成功/失効・不正トークン（再取得を促す）/成功（ダッシュボードへ）。
 - **A11y**: カメラ不可環境向けに Apple/Google サインインを代替提供。`softPulse` は reduced-motion で停止。
-- **実装メモ（Phase4・実装済み）**: `web/src/app/connect`（カメラでの QR ライブ読取＋コード貼り付けで連携。`web/src/components/QrScanner.tsx`、`getUserMedia`＋`jsQR` によるデコード）＋`web/src/app/pair`（モバイル QR ディープリンク `<WEB_URL>/pair?token=…` の着地点）。照合は `verifyPairingToken`→`signInWithCustomToken`（api-contract.md 5.2）。**Apple/Google サインイン代替も実装済み**（`web/src/lib/oauth.ts` の `signInWithProvider`＝`signInWithPopup(GoogleAuthProvider / OAuthProvider('apple.com'))`。`/connect` に「または」区切り＋Google/Apple ボタンを常設。なお本画面は visual-design.html の `.ghost-btn` 等のクラス名ではなく、connect 全体と同じくインライン style オブジェクト（`styles.outlineButton`）で実装している）。**前提**: 同じ資格情報がモバイルの匿名アカウントへ `linkWithCredential` で昇格済みのときのみ同一 uid となり既存日記が見える。**モバイル側の昇格ロジックは実装済み**（`firebaseAuthProvider.linkWith`／`authStore.linkAccount`／本画面 `WebConnectScreen` の `AccountLinkSection`＝「または」＋Apple/Google 連携ボタン。`.ghost-btn` 相当は `PrimaryButton variant="ghost"`）。**ネイティブのサインインUI（資格情報取得）も実装済み**（`nativeCredentialSource.ts`＝Apple・Google 資格情報取得の中核＋`nativeCredentialSourceInstall.ts` の `installNativeCredentialSource()`。`OAuthCredentialSource` シーム越しに `setCredentialSource` で差し込む）。ただし有効化には**開発ビルド**が必要（ネイティブモジュール要）。起動エントリでの `installNativeCredentialSource()` 呼び出しは**配線済み**（`index.ts` → `nativeAuthBootstrap`。`.env` の `EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1` で有効化）。フラグ未設定の既定（Expo Go）は動的 require が走らず `canLinkAccount` が false で導線を出さない。Firebase Console で各プロバイダの有効化（Apple は Apple Developer の「Sign in with Apple」構成、Google は webClientId＝`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`）が必要（[web/README.md](../web/README.md)・[environments.md](../.claude/rules/environments.md)）。
+- **実装メモ（Phase4・実装済み）**: `web/src/app/connect`（カメラでの QR ライブ読取＋コード貼り付けで連携。`web/src/components/QrScanner.tsx`、`getUserMedia`＋`jsQR` によるデコード）＋`web/src/app/pair`（モバイル QR ディープリンク `<WEB_URL>/pair?token=…` の着地点）。照合は `verifyPairingToken`→`signInWithCustomToken`（api-contract.md 5.2）。**Apple/Google サインイン代替も実装済み**（`web/src/lib/oauth.ts` の `signInWithProvider`＝`signInWithPopup(GoogleAuthProvider / OAuthProvider('apple.com'))`。`/connect` に「または」区切り＋Google/Apple ボタンを常設。なお本画面は visual-design.html の `.ghost-btn` 等のクラス名ではなく、connect 全体と同じくインライン style オブジェクト（`styles.outlineButton`）で実装している）。**前提**: 同じ資格情報がモバイルの匿名アカウントへ `linkWithCredential` で昇格済みのときのみ同一 uid となり既存日記が見える。**モバイル側の昇格ロジックは実装済み**（`firebaseAuthProvider.linkWith`／`authStore.linkAccount`／設定画面（`SettingsScreen`）の `AccountLinkSection`＝「または」＋Apple/Google 連携ボタン。`.ghost-btn` 相当は `PrimaryButton variant="ghost"`）。**ネイティブのサインインUI（資格情報取得）も実装済み**（`nativeCredentialSource.ts`＝Apple・Google 資格情報取得の中核＋`nativeCredentialSourceInstall.ts` の `installNativeCredentialSource()`。`OAuthCredentialSource` シーム越しに `setCredentialSource` で差し込む）。ただし有効化には**開発ビルド**が必要（ネイティブモジュール要）。起動エントリでの `installNativeCredentialSource()` 呼び出しは**配線済み**（`index.ts` → `nativeAuthBootstrap`。`.env` の `EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1` で有効化）。フラグ未設定の既定（Expo Go）は動的 require が走らず `canLinkAccount` が false で導線を出さない。Firebase Console で各プロバイダの有効化（Apple は Apple Developer の「Sign in with Apple」構成、Google は webClientId＝`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`）が必要（[web/README.md](../web/README.md)・[environments.md](../.claude/rules/environments.md)）。
 
 ### 4.3 日記一覧（Web）（`entriesView`）
-- **目的**: 書いた日記本文をパソコンでそのまま読み返す（3.10 の約束「パソコンでも、書いた日記をそのまま見られます」を Web で実現）。分析（4.1）と役割分担し、こちらは**本文閲覧**を担う。
+- **目的**: 書いた日記本文をパソコンでそのまま読み返す（3.9 設定画面のWeb連携セクションの約束「パソコンでも、書いた日記をそのまま見られます」を Web で実現）。分析（4.1）と役割分担し、こちらは**本文閲覧**を担う。
 - **要素**: ヘッダー（「日記の一覧」＋ダッシュボードへのリンク）／検索欄（読み込み済み範囲をキーワード絞り込み）／エントリカード（`.diary-entry`：日付＋感情チップ／本文 `.diary-full-text`／選択語タグ `.tags-used`／気づき）／無限スクロール用の読込目印／注記（Web 限定表示）。
 - **データ**: `entries`（`users/{uid}/entries`、`date` 降順・カーソルページング、[data.md](data.md) 第3.2節）。**Firestore を直読**（サインイン済み本人のみ read 可能：`firestore.rules`）。まとめ（`insights`）と異なり Worker を介さない。
 - **状態**: 読込中／記録なし（その旨表示）／取得失敗（再試行）／一覧表示／全件読込済み。**読取専用（U-09）**：編集導線を持たない。1日1件（U-11）前提で日ごとに縦積み。

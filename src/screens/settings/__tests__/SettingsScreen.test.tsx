@@ -1,16 +1,41 @@
 import React from 'react';
+import { Text } from 'react-native';
 import { act, create } from 'react-test-renderer';
 
 import { SettingsScreen } from '../SettingsScreen';
 
-// 設定画面（screen.md 3.9）: 「Webで見る」は常時表示。「バックアップする」は連携が実際に
-// 可能な場合（useLinkableAccountKinds が非空）のみ表示し、いずれも WebConnect 画面へ遷移する
-// （U-13決定: バックアップはApple/Googleアカウント連携で担保。連携UIはWebConnect側にあるため
-// そこへ遷移する設計。連携不可環境では「押しても何も起きない」導線を避けるため行自体を隠す）。
+// 設定画面（screen.md 3.9/3.10統合）: 「Webで見る」（QR）と「バックアップする」（Apple/Google連携、
+// U-13決定）は個別行→別画面遷移ではなく、設定画面に直接埋め込む（両方が同じ画面に着地し利用者に
+// 区別が伝わらなかった旧構成をユーザー指摘により撤廃）。アカウント削除はその下に配置する。
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 jest.mock('../../../app/navigation/hooks', () => ({
   useRootNavigation: () => ({ navigate: mockNavigate, goBack: mockGoBack }),
+}));
+
+const mockCreatePairingToken = jest.fn();
+let mockPairingAvailable = true;
+jest.mock('../../../services/pairing', () => ({
+  createPairingToken: (...args: unknown[]) => mockCreatePairingToken(...args),
+  get isPairingAvailable() {
+    return mockPairingAvailable;
+  },
+  pairingQrPayload: (t: string) => `payload:${t}`,
+}));
+
+let mockConnected: boolean | null = true;
+jest.mock('@react-native-community/netinfo', () => ({
+  useNetInfo: () => ({ isConnected: mockConnected }),
+}));
+
+jest.mock('react-native-qrcode-svg', () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
+jest.mock('../../../services/auth', () => ({
+  linkKindLabel: (k: string) => (k === 'google' ? 'Google' : 'Apple'),
+  AuthLinkError: class extends Error {},
 }));
 
 const mockUseLinkableAccountKinds = jest.fn();
@@ -28,8 +53,10 @@ jest.mock('../../../services/account', () => ({
 }));
 
 const mockSignOut = jest.fn();
+const mockLinkAccount = jest.fn();
 jest.mock('../../../stores/authStore', () => ({
-  useAuthStore: (selector: (s: { signOut: () => Promise<void> }) => unknown) => selector({ signOut: mockSignOut }),
+  useAuthStore: (selector: (s: { signOut: () => Promise<void>; linkAccount: (k: string) => Promise<void> }) => unknown) =>
+    selector({ signOut: mockSignOut, linkAccount: mockLinkAccount }),
 }));
 
 const mockTeardown = jest.fn();
@@ -52,120 +79,211 @@ function findPressableByLabel(root: ReturnType<typeof create>, label: string) {
 
 function allTexts(root: ReturnType<typeof create>): string[] {
   return root.root
-    .findAllByType('Text' as never)
+    .findAllByType(Text)
     .map((n) => n.props.children)
     .filter((c): c is string => typeof c === 'string');
 }
 
+function tokenResponse(token = 'tok-1') {
+  return { token, expiresAt: new Date(Date.now() + 60_000).toISOString(), ttlSeconds: 60 };
+}
+
+const flush = () => act(async () => {});
+
 describe('SettingsScreen', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     mockNavigate.mockReset();
     mockGoBack.mockReset();
-    mockUseLinkableAccountKinds.mockReset();
+    mockCreatePairingToken.mockReset().mockResolvedValue(tokenResponse());
+    mockPairingAvailable = true;
+    mockConnected = true;
+    mockUseLinkableAccountKinds.mockReset().mockReturnValue([]);
     mockIsAccountDeletionAvailable = false;
     mockDeleteAccount.mockReset();
     mockSignOut.mockReset();
+    mockLinkAccount.mockReset();
     mockTeardown.mockReset();
   });
 
-  describe('連携可能（useLinkableAccountKinds が非空）', () => {
-    beforeEach(() => {
-      mockUseLinkableAccountKinds.mockReturnValue(['apple']);
-    });
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
 
-    it('「Webで見る」「バックアップする」の2行を表示する（サブ文言つき）', () => {
+  describe('Webで見る（QR）', () => {
+    it('オンライン/利用可能時、マウント後にトークンを発行する', async () => {
       let root!: ReturnType<typeof create>;
-      act(() => {
+      await act(async () => {
         root = create(<SettingsScreen />);
       });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
 
-      const texts = allTexts(root);
-      expect(texts).toContain('Webで見る');
-      expect(texts).toContain('パソコンから日記を見られるようにする');
-      expect(texts).toContain('バックアップする');
-      expect(texts).toContain('機種変更・削除に備えてアカウントを保存');
-      act(() => root.unmount());
+      expect(mockCreatePairingToken).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        root.unmount();
+      });
     });
 
-    it('「Webで見る」を押すと WebConnect へ遷移する', () => {
+    it('オフライン時はトークンを発行しない', async () => {
+      mockConnected = false;
       let root!: ReturnType<typeof create>;
-      act(() => {
+      await act(async () => {
         root = create(<SettingsScreen />);
       });
-
-      act(() => {
-        findPressableByLabel(root, 'Webで見る').props.onPress();
+      await act(async () => {
+        jest.advanceTimersByTime(0);
       });
-
-      expect(mockNavigate).toHaveBeenCalledWith('WebConnect');
-      act(() => root.unmount());
+      expect(mockCreatePairingToken).not.toHaveBeenCalled();
+      await act(async () => {
+        root.unmount();
+      });
     });
 
-    it('「バックアップする」を押すと WebConnect へ遷移する（連携UIの重複実装を避けるため）', () => {
+    it('ペアリング未対応（サーバ未設定）時はトークンを発行しない', async () => {
+      mockPairingAvailable = false;
       let root!: ReturnType<typeof create>;
-      act(() => {
+      await act(async () => {
         root = create(<SettingsScreen />);
       });
-
-      act(() => {
-        findPressableByLabel(root, 'バックアップする').props.onPress();
+      await act(async () => {
+        jest.advanceTimersByTime(0);
       });
-
-      expect(mockNavigate).toHaveBeenCalledWith('WebConnect');
-      act(() => root.unmount());
+      expect(mockCreatePairingToken).not.toHaveBeenCalled();
+      await act(async () => {
+        root.unmount();
+      });
     });
 
-    it('行に読み上げ用の accessibilityLabel を付与する', () => {
+    it('60秒経過で自動的に再発行する', async () => {
       let root!: ReturnType<typeof create>;
-      act(() => {
+      await act(async () => {
         root = create(<SettingsScreen />);
       });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+      expect(mockCreatePairingToken).toHaveBeenCalledTimes(1);
 
-      const row = findPressableByLabel(root, 'バックアップする');
-      expect(row.props.accessibilityLabel).toBe('バックアップする。機種変更・削除に備えてアカウントを保存');
-      act(() => root.unmount());
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+      await flush();
+      expect(mockCreatePairingToken).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('アンマウント後はタイマーが残らない（再発行が走らない）', async () => {
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+      expect(mockCreatePairingToken).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        root.unmount();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(120_000);
+      });
+      expect(mockCreatePairingToken).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('連携不可（useLinkableAccountKinds が空）', () => {
-    beforeEach(() => {
+  describe('バックアップ（Apple/Google連携）', () => {
+    it('連携不可（既定）のときはアカウント連携導線を出さない', async () => {
       mockUseLinkableAccountKinds.mockReturnValue([]);
-    });
-
-    it('「バックアップする」行を表示しない（押しても何も起きない導線を避ける）', () => {
       let root!: ReturnType<typeof create>;
-      act(() => {
+      await act(async () => {
         root = create(<SettingsScreen />);
       });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+      expect(allTexts(root).join('|')).not.toContain('と連携');
+      await act(async () => {
+        root.unmount();
+      });
+    });
 
-      const texts = allTexts(root);
-      expect(texts).toContain('Webで見る');
-      expect(texts).not.toContain('バックアップする');
-      act(() => root.unmount());
+    it('連携可能なときは Apple/Google 連携ボタンを出す', async () => {
+      mockUseLinkableAccountKinds.mockReturnValue(['apple', 'google']);
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+      const text = allTexts(root).join('|');
+      expect(text).toContain('Apple と連携');
+      expect(text).toContain('Google と連携');
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('連携ボタンを押すと linkAccount を呼ぶ', async () => {
+      mockUseLinkableAccountKinds.mockReturnValue(['apple']);
+      mockLinkAccount.mockResolvedValue(undefined);
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      await act(async () => {
+        await findPressableByLabel(root, 'Apple と連携').props.onPress();
+      });
+
+      expect(mockLinkAccount).toHaveBeenCalledWith('apple');
+      await act(async () => {
+        root.unmount();
+      });
     });
   });
 
   describe('アカウント削除（data.md 第7章）', () => {
-    beforeEach(() => {
-      mockUseLinkableAccountKinds.mockReturnValue([]);
-    });
-
-    it('isAccountDeletionAvailable=false のときは削除行を表示しない（Worker未設定時は削除できたふりをしない）', () => {
+    it('isAccountDeletionAvailable=false のときは削除行を表示しない（Worker未設定時は削除できたふりをしない）', async () => {
       mockIsAccountDeletionAvailable = false;
       let root!: ReturnType<typeof create>;
-      act(() => {
+      await act(async () => {
         root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
       });
 
       expect(allTexts(root)).not.toContain('アカウントを削除する');
-      act(() => root.unmount());
+      await act(async () => {
+        root.unmount();
+      });
     });
 
-    it('削除行を押すと確認UIを表示し、まだ削除は実行しない', () => {
+    it('削除行を押すと確認UIを表示し、まだ削除は実行しない', async () => {
       mockIsAccountDeletionAvailable = true;
       let root!: ReturnType<typeof create>;
-      act(() => {
+      await act(async () => {
         root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
       });
 
       act(() => {
@@ -174,7 +292,9 @@ describe('SettingsScreen', () => {
 
       expect(allTexts(root)).toContain('本当に削除しますか？この操作は取り消せません。日記・対話・連携情報がすべて削除されます。');
       expect(mockDeleteAccount).not.toHaveBeenCalled();
-      act(() => root.unmount());
+      await act(async () => {
+        root.unmount();
+      });
     });
 
     it('確認後に「本当に削除する」を押すと deleteAccount→entriesStore即時クリア→signOut→Homeへの遷移を行う', async () => {
@@ -184,6 +304,9 @@ describe('SettingsScreen', () => {
       let root!: ReturnType<typeof create>;
       await act(async () => {
         root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
       });
 
       await act(async () => {
@@ -202,7 +325,9 @@ describe('SettingsScreen', () => {
       const signOutOrder = mockSignOut.mock.invocationCallOrder[0]!;
       expect(teardownOrder).toBeLessThan(signOutOrder);
       expect(mockNavigate).toHaveBeenCalledWith('MainTabs', { screen: 'Home' });
-      act(() => root.unmount());
+      await act(async () => {
+        root.unmount();
+      });
     });
 
     it('deleteAccountは成功したがsignOut（再匿名化）が失敗した場合、「削除に失敗」とは表示せず遷移もしない', async () => {
@@ -216,6 +341,9 @@ describe('SettingsScreen', () => {
       await act(async () => {
         root = create(<SettingsScreen />);
       });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
 
       await act(async () => {
         findPressableByLabel(root, 'アカウントを削除する').props.onPress();
@@ -227,7 +355,9 @@ describe('SettingsScreen', () => {
       expect(mockTeardown).toHaveBeenCalledTimes(1);
       expect(allTexts(root)).not.toContain('削除に失敗しました。もう一度お試しください。');
       expect(mockNavigate).not.toHaveBeenCalled();
-      act(() => root.unmount());
+      await act(async () => {
+        root.unmount();
+      });
     });
 
     it('削除に失敗した場合はエラーを表示し、確認UIのまま再試行できる（entriesStoreは触らない）', async () => {
@@ -236,6 +366,9 @@ describe('SettingsScreen', () => {
       let root!: ReturnType<typeof create>;
       await act(async () => {
         root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
       });
 
       await act(async () => {
@@ -251,14 +384,19 @@ describe('SettingsScreen', () => {
       expect(mockNavigate).not.toHaveBeenCalled();
       // 確認UIのまま（キャンセルボタンが引き続き見える）で再試行できる。
       expect(allTexts(root)).toContain('キャンセル');
-      act(() => root.unmount());
+      await act(async () => {
+        root.unmount();
+      });
     });
 
-    it('「キャンセル」を押すと確認UIを閉じ、削除行に戻る', () => {
+    it('「キャンセル」を押すと確認UIを閉じ、削除行に戻る', async () => {
       mockIsAccountDeletionAvailable = true;
       let root!: ReturnType<typeof create>;
-      act(() => {
+      await act(async () => {
         root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
       });
 
       act(() => {
@@ -270,7 +408,9 @@ describe('SettingsScreen', () => {
 
       expect(allTexts(root)).toContain('アカウントを削除する');
       expect(allTexts(root)).not.toContain('本当に削除しますか？この操作は取り消せません。日記・対話・連携情報がすべて削除されます。');
-      act(() => root.unmount());
+      await act(async () => {
+        root.unmount();
+      });
     });
   });
 });

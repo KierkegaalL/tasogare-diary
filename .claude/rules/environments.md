@@ -65,7 +65,7 @@
   2. 「ウェブアプリ」を追加し `firebaseConfig` を取得
   3. Authentication → Sign-in method → **匿名（Anonymous）を有効化**
   4. 取得値を `.env`（gitignore 済み）に設定 → 再起動で Firebase 匿名認証に切替
-- Apple/Google サインインは、恒久アカウントが要る段階（「Webで見る」/バックアップ）で **匿名アカウントへリンク**して昇格する。**昇格ロジックは実装済み**（`firebaseAuthProvider.linkWith`＝`linkWithCredential`、`authStore.linkAccount`、`WebConnectScreen` の導線。`credential-already-in-use` 等のエラーは `AuthLinkError` に写像）。
+- Apple/Google サインインは、恒久アカウントが要る段階（設定画面のWeb連携QR/バックアップ）で **匿名アカウントへリンク**して昇格する。**昇格ロジックは実装済み**（`firebaseAuthProvider.linkWith`＝`linkWithCredential`、`authStore.linkAccount`、設定画面（`SettingsScreen`）の導線。`credential-already-in-use` 等のエラーは `AuthLinkError` に写像）。
 - **ネイティブの資格情報取得（Apple/Google サインインUI）も実装済み**（`src/services/auth/nativeCredentialSource.ts`＝中核ロジック＝ネイティブ非依存で単体テスト可能／`src/services/auth/nativeCredentialSourceInstall.ts`＝実モジュール束ね＋`installNativeCredentialSource()`）。実装は `expo-apple-authentication`＋`expo-crypto`（Apple。生 nonce→SHA256→署名→`identityToken`＋rawNonce）と `@react-native-google-signin/google-signin`（Google。`idToken`＋accessToken）。`OAuthCredentialSource` シーム（`credentialSource.ts`）越しに `setCredentialSource` で差し込む。
 - **有効化には開発ビルドが必要**（下記のためネイティブモジュールが要る。Expo Go では未適用）:
   1. `app.config.ts` に config plugin（`expo-apple-authentication`／`@react-native-google-signin/google-signin`）と `ios.usesAppleSignIn: true` を設定できる。iOS の `pod install` で `AppCheckCore`（`@react-native-google-signin` 由来）が `GoogleUtilities`/`RecaptchaInterop` の未モジュール化を理由に失敗する場合があるため、`expo-build-properties`（`{ ios: { useFrameworks: 'static' } }`）を追加して解消済み（`ios/` は prebuild のたびに再生成されるため `Podfile` 直接編集ではなく config plugin 経由で対応）。

@@ -18,7 +18,6 @@ export type RootStackParamList = {
   DiaryFlow: NavigatorScreenParams<DiaryFlowParamList>;
   Detail: { entryId: string };
   Settings: undefined;
-  WebConnect: undefined;
 };
 
 // useNavigation の型付けを容易にするためのグローバル宣言。

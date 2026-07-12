@@ -6,7 +6,6 @@ import { MainTabs } from './MainTabs';
 import { DiaryFlowNavigator } from './DiaryFlowNavigator';
 import { DetailScreen } from '../../screens/detail/DetailScreen';
 import { SettingsScreen } from '../../screens/settings/SettingsScreen';
-import { WebConnectScreen } from '../../screens/webConnect/WebConnectScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -18,7 +17,6 @@ export function RootNavigator() {
       <Stack.Screen name="DiaryFlow" component={DiaryFlowNavigator} options={{ presentation: 'modal' }} />
       <Stack.Screen name="Detail" component={DetailScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
-      <Stack.Screen name="WebConnect" component={WebConnectScreen} />
     </Stack.Navigator>
   );
 }

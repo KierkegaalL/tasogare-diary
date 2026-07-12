@@ -42,7 +42,7 @@ tasogare-diary/
 ├── src/                       # モバイル実装（Expo/React Native）
 │   ├── app/                   # navigation・providers
 │   ├── components/            # Orb 等
-│   ├── screens/                # calendar・detail・diary（4ステップ）・home・settings・webConnect
+│   ├── screens/                # calendar・detail・diary（4ステップ）・home・settings（Web連携QR・バックアップ統合）
 │   ├── services/               # auth・claudeWorker・firebase・firestore・repository
 │   ├── stores/                  # zustand（authStore・draftStore 等）
 │   ├── theme/ / types/ / utils/
@@ -126,6 +126,7 @@ tasogare-diary/
 
 - **設定画面のアカウント削除UI**（コミット6b21e88、未push）: `DeleteAccountSection`を追加。画面内2段階確認→`deleteAccount()`→`entriesStore.teardown()`→`authStore.signOut()`（新匿名セッション確立）→Home遷移。reviewerが「旧uidデータの一瞬残留」「signOut失敗をdeleteAccount失敗と誤表示」の重大指摘2件を発見→修正（`authStore.signOut()`をrethrow化、entriesStore即時クリア）
 - **設定画面「バックアップする」行の実装**（PR #42）: ユーザーへ方針確認のうえ、WebConnect画面（既存のAccountLinkSection）へ遷移する行を追加。実装過程で「連携不可環境（既定のExpo Go等）で押しても何も起きない」バグをreviewerが発見→`useLinkableAccountKinds`（新規フック）でWebConnectScreenと判定を共有し、連携可能な場合のみ行を表示するよう修正
+- **設定画面へのWebConnect統合**（feature/native-credential-wiring・未push）: 「Webで見る」「バックアップする」の2行が同じWebConnect画面に着地し区別がつかないとのユーザー指摘を受け、旧`WebConnectScreen`（QR表示＋`AccountLinkSection`）を`SettingsScreen`へ直接統合しファイル自体を削除（`RootNavigator`/`navigation/types.ts`からもルート削除）。アカウント削除セクションはWeb連携セクションの下に配置、`ScrollView`でラップ。`docs/screen.md`（3.9/3.10統合）・`docs/architecture.md`・`docs/design/basic-design.md`・`docs/api-contract.md`・`web/README.md`・`environments.md`のWebConnect参照を更新。reviewer一次チェックでdocs修正漏れ5件を指摘→修正済み
 - **過去日記一覧の仮想化**（PR #41）: `CalendarScreen`のリストモードを`ScrollView`+`.map()`から`SectionList`（`VirtualizedList`ベース）へ書き換え、constraints.md「リスト表示は仮想化」要件を充足。`EntryRow`を`React.memo`化・`onOpen`を`useCallback`で安定化
 - **entries.source/adjustments の追跡実装**（PR #40）: `entries.source`（生成モデル/プロンプト版）・`entries.adjustments`（適用調整の履歴）を`DiaryEntry`型・保存処理に実装。worker側`handleGenerateDiary`/`handleAdjustDiary`にモデルID返却を追加、保存ロジックは`buildDiaryEntry.ts`へ純粋関数として切り出し。実装過程で「↻選び直す」時に`PreviewScreen`が再マウントされず古い調整結果が持ち越されるバグを発見・修正（React公式のレンダー中state調整パターン）。`docs/api-contract.md`のモデル名記述漏れ（`claude-sonnet-5`残存）も併せて修正
 - **docsとの整合チェック**（2026-07-11）: 実装×設計書（api-contract.md/architecture.md/data.md/screen.md）を全面照合し、下記の残タスクを確定
