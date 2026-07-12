@@ -1,6 +1,6 @@
 # Memory — たそがれ日記 プロジェクト引き継ぎドキュメント
 
-最終更新: 2026-07-11（コミット1a17a92反映。docs記載済み低優先度タスク4件すべて完了。push・PR作成待ち）
+最終更新: 2026-07-12（ネイティブ資格情報取得の運用配線を実装＝`index.ts`→`nativeAuthBootstrap`で`EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1`時のみ`installNativeCredentialSource()`を動的requireして呼ぶ配線。`feature/native-credential-wiring`ブランチにコミット予定。※Cron Triggers実装は別PR #44）
 
 > このファイルは ClaudeCode がセッションをまたいで状況を引き継ぐための**状況記録ドキュメント**。ルール本体（振る舞いの指示）は [CLAUDE.md](CLAUDE.md) と `.claude/rules/` を正とし、本ファイルはそれらを前提にした**現在地のスナップショット**を保持する。矛盾があれば CLAUDE.md / `.claude/rules/` が優先。
 >
@@ -113,7 +113,7 @@ tasogare-diary/
 - deleteAccount（Worker側API実装・実疎通確認済み。UI導線も実装済み＝コミット6b21e88）
 - Web ダッシュボード一式（`web/`）: 振り返り画面・日記本文閲覧（`/entries`・検索/無限スクロール）・カメラQRライブ読取・Apple/Googleサインイン代替（Web側）・Firebase Hostingデプロイ設定
 - モバイル: 匿名→Apple/Googleリンク昇格ロジック（`linkWithCredential`・`AuthLinkError`写像・`WebConnectScreen`導線）
-- モバイル: **ネイティブ資格情報取得の実装**（`nativeCredentialSource.ts`＝中核ロジック・`nativeCredentialSourceInstall.ts`＝実モジュール束ね。Apple: `expo-apple-authentication`+`expo-crypto`のnonceフロー、Google: `@react-native-google-signin`）。**ただし起動エントリでの `installNativeCredentialSource()` 呼び出し配線は未着手**（開発ビルド前提のため意図的に後続）
+- モバイル: **ネイティブ資格情報取得の実装**（`nativeCredentialSource.ts`＝中核ロジック・`nativeCredentialSourceInstall.ts`＝実モジュール束ね。Apple: `expo-apple-authentication`+`expo-crypto`のnonceフロー、Google: `@react-native-google-signin`）。**起動エントリでの `installNativeCredentialSource()` 呼び出しも配線済み**（`index.ts`→`nativeAuthBootstrap.ts`の`bootstrapNativeCredentialSource()`。`EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1`時のみ`nativeCredentialSourceInstall`を動的requireして呼ぶ＝Expo Goではネイティブモジュール未評価で起動が壊れない）。実機疎通確認は開発ビルドが要るためユーザー実施待ち
 
 - **設定画面のアカウント削除UI**（コミット6b21e88、未push）: `DeleteAccountSection`を追加。画面内2段階確認→`deleteAccount()`→`entriesStore.teardown()`→`authStore.signOut()`（新匿名セッション確立）→Home遷移。reviewerが「旧uidデータの一瞬残留」「signOut失敗をdeleteAccount失敗と誤表示」の重大指摘2件を発見→修正（`authStore.signOut()`をrethrow化、entriesStore即時クリア）
 - **設定画面「バックアップする」行の実装**（PR #42）: ユーザーへ方針確認のうえ、WebConnect画面（既存のAccountLinkSection）へ遷移する行を追加。実装過程で「連携不可環境（既定のExpo Go等）で押しても何も起きない」バグをreviewerが発見→`useLinkableAccountKinds`（新規フック）でWebConnectScreenと判定を共有し、連携可能な場合のみ行を表示するよう修正
@@ -130,8 +130,8 @@ tasogare-diary/
 - [x] Gemini再試行の最大待ち時間の再検討 → **完了**（コミット9298b02。`REQUEST_TIMEOUT_MS`を`Record<LlmPurpose, number>`化し用途別に分離：interactive=15秒/generate=20秒、最大待ち時間はinteractive≒30.6秒・generate≒40.6秒。reviewer指摘＝共通タイムアウトだとgenerate側のdeadline-exceeded率が上がるリスクを踏まえた設計）
 - [x] chatのサーバ側文脈補完 → **完了（一部）**（コミット658a1d0。`entryId`から`getEntry`＝`worker/src/firestore.ts`で当日の`mood`/`bodyText`のみ`mask.fieldPaths`で取得し`system`プロンプトへ注入。`history`切り詰めの影響を受けない。取得失敗・entryId不正時は文脈補完なしにフォールバックし対話継続。関連する過去エントリの**要約**補完は未実装のまま＝`docs/api-contract.md`第10章に明記）
 - [x] 「過去3ヶ月」タブの感情推移グラフが単一積み上げバーのまま（週別内訳は未実装）→ **完了**（コミット1a17a92。`worker/src/insight.ts`に`aggregateWeekly`を追加、`type=quarterly`のみISO週（月曜始まり）ごとの百分率`weeklyBreakdown`を算出しキャッシュ（`InsightDoc`）に含める。エントリの無い週も0件として含め推移の空白を可視化。weekly/monthlyタブは期間が短いため従来どおり単一バーのまま。Webは`WeeklyMoodChart`（新規）で週別バーを表示、`MoodChart`は単一バー用に維持。**実データでのブラウザ確認は未実施**＝web/.env.localが未設定でFirebase未接続のため。型チェック・ユニットテスト（週境界を実際にnodeで計算し検証済み）・reviewerチェックは通過済み）
-- 【次回以降・設計判断/開発ビルドが必要】generateInsightの定期事前生成（Cron Triggers）未実装（全ユーザー列挙のコスト・権限設計が要検討）
-- 【次回以降・開発ビルド必須】ネイティブ資格情報取得の運用配線（`App.tsx`等の起動エントリで`installNativeCredentialSource()`を呼ぶ）・実機疎通確認（Expo Goを壊さない配線方法の検討が必要）
+- 【次回以降・設計判断/開発ビルドが必要】generateInsightの定期事前生成（Cron Triggers）→ **別PR #44 で対応中**（`feature/cron-pregenerate-insights`。本ブランチには含めない）
+- [x] ネイティブ資格情報取得の運用配線 → **完了**（`index.ts`→`nativeAuthBootstrap.ts`。`EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1`のときだけ`installNativeCredentialSource()`を動的require。「Expo Goを壊さない配線」課題は、ネイティブモジュールを静的importせず遅延require＋envフラグゲートで解決。テスト`nativeAuthBootstrap.test.ts`追加）。**実機疎通確認は開発ビルドが必要でユーザー実施待ち**（手順は提示済み: EAS/prebuildで開発ビルド作成→`.env`にフラグ＋webClientId＋Firebase Console有効化→モバイルで昇格→Webで同一uid確認）
 - 【次回以降・大規模ネイティブ移行】Firestoreオフライン永続化（RN制約でメモリキャッシュ中心。`@react-native-firebase`ネイティブ移行が本格対応。当面はdraftStoreで下書き継続を担保）
 
 **軽微な所見（任意対応・ブロッカーではない）**

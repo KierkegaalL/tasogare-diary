@@ -70,8 +70,8 @@
 - **有効化には開発ビルドが必要**（下記のためネイティブモジュールが要る。Expo Go では未適用）:
   1. `app.config.ts` に config plugin（`expo-apple-authentication`／`@react-native-google-signin/google-signin`）と `ios.usesAppleSignIn: true` を設定済み。
   2. Google は `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`（webClientId＝Firebase 用 idToken 取得）を `.env` に設定（[.env.example](../../.env.example)）。未設定なら Google は利用不可。iOS はさらに `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME`（逆順クライアントID）を設定すると `app.config.ts` が config plugin の `iosUrlScheme` に渡す（リダイレクト受け取りに必要。Android は不要）。
-  3. 開発ビルドの起動エントリで一度 `installNativeCredentialSource()` を呼ぶ（App.tsx＝Expo Go 既定パスからは import しない。Metro が実モジュールを Expo Go バンドルへ引き込むのを避けるため）。
-  - Expo Go 既定バンドルは `installNativeCredentialSource` を読み込まないため `canLinkAccount()` は false のまま＝導線非表示。Firebase Console 側で Apple/Google プロバイダの有効化（Apple は Apple Developer の「Sign in with Apple」構成）が別途必要。
+  3. **起動エントリでの `installNativeCredentialSource()` 呼び出しは配線済み**（`index.ts` → `src/services/auth/nativeAuthBootstrap.ts` の `bootstrapNativeCredentialSource()`）。`.env` に **`EXPO_PUBLIC_ENABLE_NATIVE_AUTH=1`（または `true`）** を設定した開発/配布ビルドでのみ有効化される。bootstrap はネイティブモジュールを**静的 import せず**、フラグが真のときだけ `nativeCredentialSourceInstall` を**動的 require**するため、App.tsx／Expo Go 既定バンドルにネイティブモジュール（`expo-apple-authentication`／`@react-native-google-signin`）を引き込まない（Metro の require は遅延評価。フラグ未設定の Expo Go では評価されず起動が壊れない）。
+  - フラグ未設定（既定＝Expo Go）では bootstrap は何もせず `canLinkAccount()` は false のまま＝導線非表示。**Expo Go では本フラグを設定しないこと**（ネイティブモジュールを評価して起動が壊れるため）。Firebase Console 側で Apple/Google プロバイダの有効化（Apple は Apple Developer の「Sign in with Apple」構成）が別途必要。
 
 ## Web ダッシュボード クライアント設定（Phase4・`web/`）
 
