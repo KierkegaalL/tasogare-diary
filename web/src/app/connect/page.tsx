@@ -135,14 +135,14 @@ export default function ConnectPage() {
             Google でサインイン
           </button>
           <button
-            onClick={() => void handleOAuth('apple')}
-            style={{ ...styles.outlineButton, marginTop: 10 }}
-            disabled={busy}
+            style={{ ...styles.outlineButton, ...styles.outlineButtonDisabled, marginTop: 10 }}
+            disabled
           >
             Apple でサインイン
           </button>
           <p style={styles.oauthNote}>
             スマホで Apple／Google 連携を済ませたアカウントでサインインしてください。
+            Apple でのサインインは現在未実装のため利用できません。今後対応予定です。
           </p>
         </>
       )}
@@ -201,6 +201,11 @@ const styles = {
     background: 'var(--paper-soft)',
     color: 'var(--ink)',
     fontSize: 14,
+  } as CSSProperties,
+  // Apple サインインは現在未実装のため無効化して表示する（未実装機能を押せてしまわないように）。
+  outlineButtonDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed',
   } as CSSProperties,
   divider: {
     display: 'flex',
