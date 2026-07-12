@@ -4,6 +4,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-01",
 
+  // Cron Triggers: insights の事前生成（src/cron.ts の scheduled ハンドラ）。
+  // 15:00 UTC ＝ 00:00 JST（日付が変わった直後）に現在期間の weekly/monthly まとめを温める。
+  // best-effort のキャッシュ温めで、正はオンデマンド生成。処理ユーザー数は CRON_MAX_USERS で制限。
+  "triggers": {
+    "crons": ["0 15 * * *"]
+  },
+
   // 公開可能な値のみ。GEMINI_API_KEY はここに書かず `wrangler secret put GEMINI_API_KEY` で登録する。
   "vars": {
     "FIREBASE_PROJECT_ID": "tasogare-diary-project"
