@@ -36,10 +36,11 @@ export async function chat(req: ChatRequest): Promise<ChatResponse> {
 }
 
 export async function chatOpening(ctx: {
+  entryId: string;
   mood: MoodLevel | null;
   bodyText: string;
 }): Promise<ChatResponse> {
-  return callClaudeWorker<{ mood: MoodLevel | null; bodyText: string }, ChatResponse>(
+  return callClaudeWorker<{ entryId: string; mood: MoodLevel | null; bodyText: string }, ChatResponse>(
     '/chatOpening',
     ctx,
   );

@@ -81,7 +81,7 @@ export function DetailScreen() {
     if (!entry || !uid) return;
     setOpeningError(false);
     openingRequested.current = true;
-    chatOpening({ mood: entry.mood, bodyText: entry.bodyText })
+    chatOpening({ entryId, mood: entry.mood, bodyText: entry.bodyText })
       .then((res) => addMessage(uid, entryId, createMessage('ai', res.reply)))
       .catch(() => {
         openingRequested.current = false;

@@ -113,6 +113,7 @@ export function chat(req: ChatRequest): Promise<ChatResponse> {
 }
 
 export function chatOpening(ctx: {
+  entryId: string;
   mood: MoodLevel | null;
   bodyText: string;
 }): Promise<ChatResponse> {
