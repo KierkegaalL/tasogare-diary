@@ -75,46 +75,50 @@ export function WebConnectGate() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>スマホと連携する</Text>
-        <Text style={styles.sub}>
-          スマホアプリの設定画面に表示されるQRコードをカメラで読み取るか、コード（URL）を貼り付けてください。
-        </Text>
+        {/* web/ の /connect（CenteredCard）と同じ「白枠で囲われたカード」の見た目に揃える
+            （ユーザー指摘）。「サインインせずに利用する」だけはこの枠の外に置く。 */}
+        <View style={styles.card}>
+          <Text style={styles.title}>スマホと連携する</Text>
+          <Text style={styles.sub}>
+            スマホアプリの設定画面に表示されるQRコードをカメラで読み取るか、コード（URL）を貼り付けてください。
+          </Text>
 
-        {scanning ? (
-          <QrCameraScanner onDecode={handleDecode} onClose={() => setScanning(false)} />
-        ) : (
-          <PrimaryButton label="カメラで読み取る" variant="ghost" onPress={() => setScanning(true)} disabled={busy} />
-        )}
+          {scanning ? (
+            <QrCameraScanner onDecode={handleDecode} onClose={() => setScanning(false)} />
+          ) : (
+            <PrimaryButton label="カメラで読み取る" variant="ghost" onPress={() => setScanning(true)} disabled={busy} />
+          )}
 
-        <TextInput
-          value={input}
-          onChangeText={setInput}
-          placeholder="https://tasogare-diary.app/pair?token=… または コード"
-          placeholderTextColor={colors.inkFaint}
-          style={styles.input}
-          editable={!busy}
-          accessibilityLabel="ペアリングコード"
-        />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <PrimaryButton
-          label={busy ? '連携しています…' : 'つなぐ'}
-          onPress={() => void connectWithRaw(input)}
-          disabled={busy}
-        />
+          <TextInput
+            value={input}
+            onChangeText={setInput}
+            placeholder="https://tasogare-diary.app/pair?token=… または コード"
+            placeholderTextColor={colors.inkFaint}
+            style={styles.input}
+            editable={!busy}
+            accessibilityLabel="ペアリングコード"
+          />
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <PrimaryButton
+            label={busy ? '連携しています…' : 'つなぐ'}
+            onPress={() => void connectWithRaw(input)}
+            disabled={busy}
+          />
 
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>または</Text>
-          <View style={styles.dividerLine} />
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>または</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <PrimaryButton label="Google でサインイン" variant="ghost" onPress={() => void handleGoogle()} disabled={busy} />
+          <View style={[styles.appleButton, busy && styles.appleButtonDisabled]}>
+            <Text style={styles.appleLabel}>Apple でサインイン</Text>
+          </View>
+          <Text style={styles.note}>
+            Apple でのサインインは現在未実装のため利用できません。今後対応予定です。
+          </Text>
         </View>
-
-        <PrimaryButton label="Google でサインイン" variant="ghost" onPress={() => void handleGoogle()} disabled={busy} />
-        <View style={[styles.appleButton, busy && styles.appleButtonDisabled]}>
-          <Text style={styles.appleLabel}>Apple でサインイン</Text>
-        </View>
-        <Text style={styles.note}>
-          Apple でのサインインは現在未実装のため利用できません。今後対応予定です。
-        </Text>
 
         <View style={styles.guestBox}>
           {busy ? (
@@ -131,7 +135,17 @@ export function WebConnectGate() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.paper },
-  scroll: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
+  scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl, alignItems: 'center' },
+  card: {
+    width: '100%',
+    maxWidth: 440,
+    backgroundColor: colors.paperSoft,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.card,
+    padding: spacing.xl,
+    gap: spacing.md,
+  },
   title: { fontFamily: fonts.display, fontSize: 18, color: colors.duskDeep, textAlign: 'center' },
   sub: { fontFamily: fonts.uiRegular, fontSize: 12, color: colors.inkSoft, textAlign: 'center', marginBottom: spacing.sm },
   input: {
@@ -161,10 +175,8 @@ const styles = StyleSheet.create({
   appleLabel: { fontFamily: fonts.uiBold, fontSize: 14, color: colors.inkSoft },
   note: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.inkFaint, textAlign: 'center' },
   guestBox: {
-    marginTop: spacing.lg,
-    paddingTop: spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
+    width: '100%',
+    maxWidth: 440,
     alignItems: 'center',
     gap: spacing.sm,
   },

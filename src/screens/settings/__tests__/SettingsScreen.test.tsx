@@ -312,7 +312,32 @@ describe('SettingsScreen', () => {
       expect(texts).not.toContain('ログアウトする');
 
       await act(async () => {
-        findPressableByLabel(root, '連携する').props.onPress();
+        findPressableByLabel(root, 'スマホと連携する').props.onPress();
+      });
+      expect(mockRequestWebConnect).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('連携する行を連打しても requestWebConnect は1回しか呼ばれない（busyガード）', async () => {
+      Object.defineProperty(Platform, 'OS', { get: () => 'web' });
+      mockIsFirebaseConfigured = true;
+      mockAuthUser = { uid: 'guest-1', provider: 'anonymous', isAnonymous: true };
+      mockRequestWebConnect.mockReturnValue(new Promise(() => {}));
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      act(() => {
+        const onPress = findPressableByLabel(root, 'スマホと連携する').props.onPress;
+        onPress();
+        onPress();
       });
       expect(mockRequestWebConnect).toHaveBeenCalledTimes(1);
       await act(async () => {
@@ -339,7 +364,7 @@ describe('SettingsScreen', () => {
       expect(texts).not.toContain('スマホと連携する');
 
       await act(async () => {
-        findPressableByLabel(root, 'ログアウト').props.onPress();
+        findPressableByLabel(root, 'ログアウトする').props.onPress();
       });
       expect(mockRequestWebConnect).toHaveBeenCalledTimes(1);
       await act(async () => {

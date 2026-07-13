@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -40,6 +40,7 @@ export function SettingsScreen() {
     <ScreenShell title="設定" subtitle={subtitle} onBack={() => navigation.goBack()}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <WebConnectSection />
+        <WebAccountRow />
         {isAccountDeletionAvailable ? <DeleteAccountSection /> : null}
       </ScrollView>
     </ScreenShell>
@@ -55,7 +56,7 @@ function WebConnectSection() {
   const isWeb = Platform.OS === 'web';
   return (
     <View style={styles.section}>
-      {isWeb ? <WebAccountRow /> : <QrPairingBody />}
+      {isWeb ? null : <QrPairingBody />}
       {isWeb ? <WebDashboardNotice /> : null}
       <AccountLinkSection />
       {/* 「スマホの日記データは…」はネイティブ（QR/バックアップ操作がスマホ側で完結する）向けの
@@ -97,39 +98,40 @@ function WebDashboardNotice() {
 // Web版専用: 未連携（匿名セッション）なら「スマホと連携する」、連携済み（非匿名）なら
 // 「ログアウトする」を出し分ける（ユーザー指摘）。いずれも requestWebConnect（サインアウト＋
 // 連携画面 WebConnectGate へ戻す）を呼ぶだけでよい設計にしている。
+// 見た目・配置は「アカウントを削除する」行と同一（同じ SettingsRow・その真上）にする
+// （ユーザー指摘）。
 function WebAccountRow() {
   const user = useAuthStore((s) => s.user);
   const requestWebConnect = useAuthStore((s) => s.requestWebConnect);
   const [busy, setBusy] = useState(false);
+  // busy(state) は再レンダー後にしか更新されないため、同一tick内の連続呼び出し（連打）を
+  // 弾けない（reviewer指摘・実際にテストで再現）。ref で同期的にガードする。
+  const busyRef = useRef(false);
 
-  // Firebase未設定時はそもそも連携ゲートが機能しない（WebConnectGateはWorker/Firebase前提）ため
-  // 導線自体を出さない（reviewer指摘: 出し分けの誤表示・機能しないボタンを避ける防御）。
-  if (!user || !isFirebaseConfigured) return null;
+  // ネイティブでは出さない。Firebase未設定時はそもそも連携ゲートが機能しない
+  // （WebConnectGateはWorker/Firebase前提）ため導線自体を出さない
+  // （reviewer指摘: 出し分けの誤表示・機能しないボタンを避ける防御）。
+  if (Platform.OS !== 'web' || !user || !isFirebaseConfigured) return null;
 
-  // requestWebConnect は成功時に authStore.status を 'needs-connect' へ変え、App.tsx が
-  // WebConnectGate へ切り替わりこの画面自体がアンマウントされる（失敗しても内部で吸収し必ず
-  // 遷移する設計＝authStore.ts 参照）。そのため busy を戻す処理は持たない
-  // （アンマウント後の setState を避けるため。reviewer指摘を先取り）。
+  const label = user.isAnonymous ? 'スマホと連携する' : 'ログアウトする';
+  const sub = user.isAnonymous
+    ? '書いた日記を、ここでもそのまま読めるようにします。'
+    : 'このブラウザでのサインインを終了します。';
+
+  // requestWebConnect は provider.signOut() の完了を待ってから status を切り替えるため、
+  // 完了までの間に連打すると多重発火しうる（reviewer指摘）。busyRef で連打をブロックする。
+  // 成功時は WebConnectGate へ切り替わりこの行自体がアンマウントされるため busy を戻す
+  // 処理は持たない（アンマウント後の setState を避けるため。authStore.ts 参照）。
   const onPress = () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     void requestWebConnect();
   };
 
   return (
-    <View style={styles.linkSection}>
-      {user.isAnonymous ? (
-        <>
-          <Text style={styles.linkTitle}>スマホと連携する</Text>
-          <Text style={styles.linkSub}>書いた日記を、ここでもそのまま読めるようにします。</Text>
-          <PrimaryButton label={busy ? '連携画面へ…' : '連携する'} variant="ghost" disabled={busy} onPress={() => void onPress()} />
-        </>
-      ) : (
-        <>
-          <Text style={styles.linkTitle}>ログアウトする</Text>
-          <Text style={styles.linkSub}>このブラウザでのサインインを終了します。</Text>
-          <PrimaryButton label={busy ? 'ログアウトしています…' : 'ログアウト'} variant="ghost" disabled={busy} onPress={() => void onPress()} />
-        </>
-      )}
+    <View style={styles.section}>
+      <SettingsRow label={label} sub={sub} onPress={onPress} disabled={busy} />
     </View>
   );
 }
@@ -380,14 +382,26 @@ function ConfirmAnnouncement() {
 }
 
 // screen.md 3.9 の .settings-row（タイトル＋サブ文言の行）。
-function SettingsRow({ label, sub, onPress }: { label: string; sub: string; onPress: () => void }) {
+function SettingsRow({
+  label,
+  sub,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  sub: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
   return (
     <Pressable
       accessible
       accessibilityRole="button"
       accessibilityLabel={`${label}。${sub}`}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed, disabled && styles.rowDisabled]}
     >
       <Text style={styles.rowLabel}>{label}</Text>
       <Text style={styles.rowSub}>{sub}</Text>
@@ -408,6 +422,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   rowPressed: { opacity: 0.85 },
+  rowDisabled: { opacity: 0.5 },
   rowLabel: { fontFamily: fonts.uiBold, fontSize: 14, color: colors.ink },
   rowSub: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.inkFaint },
   confirmBox: {
