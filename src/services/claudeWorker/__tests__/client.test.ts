@@ -5,11 +5,12 @@ jest.mock('../config', () => ({
   claudeWorkerBaseUrl: 'https://worker.example.com',
 }));
 
+// ID トークン取得は AuthProvider 抽象経由（getAuthProvider().getIdToken()）。プロバイダ非依存に
+// なったため、firebase/app 直参照ではなく getAuthProvider をモックする
+// （migration-react-native-firebase.md 第6章）。
 const mockGetIdToken = jest.fn();
-// currentUser は各テストで書き換えるため let にしておく（未サインイン状態の検証に使う）。
-let mockCurrentUser: { getIdToken: typeof mockGetIdToken } | null = { getIdToken: mockGetIdToken };
-jest.mock('../../firebase/app', () => ({
-  getFirebaseAuth: () => ({ currentUser: mockCurrentUser }),
+jest.mock('../../auth', () => ({
+  getAuthProvider: () => ({ getIdToken: mockGetIdToken }),
 }));
 
 describe('callClaudeWorker', () => {
@@ -17,7 +18,6 @@ describe('callClaudeWorker', () => {
 
   beforeEach(() => {
     mockGetIdToken.mockReset().mockResolvedValue('id-token');
-    mockCurrentUser = { getIdToken: mockGetIdToken };
   });
 
   afterEach(() => {
@@ -72,8 +72,8 @@ describe('callClaudeWorker', () => {
     await expect(callClaudeWorker('/chat', {})).rejects.toMatchObject({ code: 'unavailable' });
   });
 
-  it('未サインイン（currentUser 無し）の場合は unauthenticated にする', async () => {
-    mockCurrentUser = null;
+  it('ID トークン取得が失敗（未サインイン等）した場合は unauthenticated にする', async () => {
+    mockGetIdToken.mockRejectedValue(new Error('no session'));
 
     await expect(callClaudeWorker('/chat', {})).rejects.toBeInstanceOf(ClaudeWorkerError);
     await expect(callClaudeWorker('/chat', {})).rejects.toMatchObject({ code: 'unauthenticated' });

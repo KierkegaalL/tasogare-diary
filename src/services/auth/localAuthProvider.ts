@@ -29,4 +29,11 @@ export const localAuthProvider: AuthProvider = {
   async signOut() {
     await AsyncStorage.removeItem(UID_KEY);
   },
+  // ローカル匿名プロバイダは実 Firebase ID トークンを持たない。Worker（Claude 連携）は Firebase
+  // 設定時＝firebaseAuthProvider 経由でのみ呼ばれるため localAuthProvider.getIdToken には到達しない
+  // 想定だが、偽トークンを返して静かに unauthenticated 失敗するのを防ぐため明示的に throw する
+  // （types.ts の getIdToken コメント / migration-react-native-firebase.md 第6章）。
+  async getIdToken(): Promise<string> {
+    throw new Error('ローカル匿名プロバイダは Firebase ID トークンを持ちません。');
+  },
 };
