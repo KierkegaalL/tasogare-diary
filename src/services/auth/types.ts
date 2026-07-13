@@ -8,6 +8,11 @@ export interface AuthUser {
   uid: string;
   provider: AuthProviderKind;
   displayName?: string;
+  /**
+   * Firebase の匿名アカウントか（Web版の「スマホと連携する」/「ログアウトする」の出し分けに使う。
+   * ローカル匿名プロバイダは常に true 扱い）。
+   */
+  isAnonymous?: boolean;
 }
 
 export interface AuthProvider {

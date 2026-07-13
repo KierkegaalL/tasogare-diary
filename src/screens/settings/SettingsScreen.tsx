@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -18,6 +18,7 @@ import { ScreenShell } from '../../components/ScreenShell';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { useLinkableAccountKinds } from '../../hooks/useAccountLink';
 import { deleteAccount, isAccountDeletionAvailable } from '../../services/account';
+import { isFirebaseConfigured } from '../../services/firebase/config';
 import { createPairingToken, isPairingAvailable, pairingQrPayload } from '../../services/pairing';
 import { AuthLinkError, linkKindLabel } from '../../services/auth';
 import type { AccountLinkKind } from '../../services/auth';
@@ -39,6 +40,7 @@ export function SettingsScreen() {
     <ScreenShell title="設定" subtitle={subtitle} onBack={() => navigation.goBack()}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <WebConnectSection />
+        <WebAccountRow />
         {isAccountDeletionAvailable ? <DeleteAccountSection /> : null}
       </ScrollView>
     </ScreenShell>
@@ -54,7 +56,8 @@ function WebConnectSection() {
   const isWeb = Platform.OS === 'web';
   return (
     <View style={styles.section}>
-      {isWeb ? <WebDashboardNotice /> : <QrPairingBody />}
+      {isWeb ? null : <QrPairingBody />}
+      {isWeb ? <WebDashboardNotice /> : null}
       <AccountLinkSection />
       {/* 「スマホの日記データは…」はネイティブ（QR/バックアップ操作がスマホ側で完結する）向けの
           文言。Web版でもこのまま出すと「スマホ」という前提自体が噛み合わず自己矛盾になるため、
@@ -65,15 +68,17 @@ function WebConnectSection() {
 }
 
 // Web ダッシュボードへの案内（screen.md 4.2 の /connect）。EXPO_PUBLIC_WEB_URL が
-// 設定されていればリンクを開けるようにする。
+// 設定されていればリンクを開けるようにする。上の WebAccountRow（このブラウザ自体を連携）とは
+// 別の目的: こちらは分析・検索など閲覧専用の機能が揃った別アプリへの案内（reviewer指摘を受け、
+// 「この画面でも見られるのに別アプリへ誘導される」混乱を減らすため文言を調整）。
 function WebDashboardNotice() {
   const webUrl = process.env.EXPO_PUBLIC_WEB_URL;
   const [error, setError] = useState(false);
   return (
     <View style={styles.center}>
-      <Text style={styles.prompt}>パソコンでの閲覧はWebダッシュボードから</Text>
+      <Text style={styles.prompt}>分析・検索など、より詳しく見るならWebダッシュボード</Text>
       <Text style={styles.promptSub}>
-        スマホアプリの設定画面に表示されるQRコードを、Webダッシュボードのカメラで読み取ってください。
+        こちらのブラウザ以外の端末で開く場合は、そちらの設定画面のQRコードをWebダッシュボードのカメラで読み取ってください。
       </Text>
       {webUrl ? (
         <PrimaryButton
@@ -86,6 +91,47 @@ function WebDashboardNotice() {
         />
       ) : null}
       {error ? <Text style={styles.confirmError}>リンクを開けませんでした。</Text> : null}
+    </View>
+  );
+}
+
+// Web版専用: 未連携（匿名セッション）なら「スマホと連携する」、連携済み（非匿名）なら
+// 「ログアウトする」を出し分ける（ユーザー指摘）。いずれも requestWebConnect（サインアウト＋
+// 連携画面 WebConnectGate へ戻す）を呼ぶだけでよい設計にしている。
+// 見た目・配置は「アカウントを削除する」行と同一（同じ SettingsRow・その真上）にする
+// （ユーザー指摘）。
+function WebAccountRow() {
+  const user = useAuthStore((s) => s.user);
+  const requestWebConnect = useAuthStore((s) => s.requestWebConnect);
+  const [busy, setBusy] = useState(false);
+  // busy(state) は再レンダー後にしか更新されないため、同一tick内の連続呼び出し（連打）を
+  // 弾けない（reviewer指摘・実際にテストで再現）。ref で同期的にガードする。
+  const busyRef = useRef(false);
+
+  // ネイティブでは出さない。Firebase未設定時はそもそも連携ゲートが機能しない
+  // （WebConnectGateはWorker/Firebase前提）ため導線自体を出さない
+  // （reviewer指摘: 出し分けの誤表示・機能しないボタンを避ける防御）。
+  if (Platform.OS !== 'web' || !user || !isFirebaseConfigured) return null;
+
+  const label = user.isAnonymous ? 'スマホと連携する' : 'ログアウトする';
+  const sub = user.isAnonymous
+    ? '書いた日記を、ここでもそのまま読めるようにします。'
+    : 'このブラウザでのサインインを終了します。';
+
+  // requestWebConnect は provider.signOut() の完了を待ってから status を切り替えるため、
+  // 完了までの間に連打すると多重発火しうる（reviewer指摘）。busyRef で連打をブロックする。
+  // 成功時は WebConnectGate へ切り替わりこの行自体がアンマウントされるため busy を戻す
+  // 処理は持たない（アンマウント後の setState を避けるため。authStore.ts 参照）。
+  const onPress = () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    void requestWebConnect();
+  };
+
+  return (
+    <View style={styles.section}>
+      <SettingsRow label={label} sub={sub} onPress={onPress} disabled={busy} />
     </View>
   );
 }
@@ -336,14 +382,26 @@ function ConfirmAnnouncement() {
 }
 
 // screen.md 3.9 の .settings-row（タイトル＋サブ文言の行）。
-function SettingsRow({ label, sub, onPress }: { label: string; sub: string; onPress: () => void }) {
+function SettingsRow({
+  label,
+  sub,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  sub: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
   return (
     <Pressable
       accessible
       accessibilityRole="button"
       accessibilityLabel={`${label}。${sub}`}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed, disabled && styles.rowDisabled]}
     >
       <Text style={styles.rowLabel}>{label}</Text>
       <Text style={styles.rowSub}>{sub}</Text>
@@ -364,6 +422,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   rowPressed: { opacity: 0.85 },
+  rowDisabled: { opacity: 0.5 },
   rowLabel: { fontFamily: fonts.uiBold, fontSize: 14, color: colors.ink },
   rowSub: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.inkFaint },
   confirmBox: {

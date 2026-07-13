@@ -28,6 +28,15 @@ jest.mock('@react-native-community/netinfo', () => ({
   useNetInfo: () => ({ isConnected: mockConnected }),
 }));
 
+// WebAccountRow は Firebase 未設定時（テスト環境では実際の環境変数が無いため既定 false）は
+// 導線自体を出さない（reviewer指摘）ため、Web版のテストでは true に切り替える。
+let mockIsFirebaseConfigured = false;
+jest.mock('../../../services/firebase/config', () => ({
+  get isFirebaseConfigured() {
+    return mockIsFirebaseConfigured;
+  },
+}));
+
 jest.mock('react-native-qrcode-svg', () => ({
   __esModule: true,
   default: () => null,
@@ -54,9 +63,23 @@ jest.mock('../../../services/account', () => ({
 
 const mockSignOut = jest.fn();
 const mockLinkAccount = jest.fn();
+const mockRequestWebConnect = jest.fn();
+let mockAuthUser: { uid: string; provider: string; isAnonymous?: boolean } | null = null;
 jest.mock('../../../stores/authStore', () => ({
-  useAuthStore: (selector: (s: { signOut: () => Promise<void>; linkAccount: (k: string) => Promise<void> }) => unknown) =>
-    selector({ signOut: mockSignOut, linkAccount: mockLinkAccount }),
+  useAuthStore: (
+    selector: (s: {
+      user: unknown;
+      signOut: () => Promise<void>;
+      linkAccount: (k: string) => Promise<void>;
+      requestWebConnect: () => Promise<void>;
+    }) => unknown,
+  ) =>
+    selector({
+      user: mockAuthUser,
+      signOut: mockSignOut,
+      linkAccount: mockLinkAccount,
+      requestWebConnect: mockRequestWebConnect,
+    }),
 }));
 
 const mockTeardown = jest.fn();
@@ -104,6 +127,8 @@ describe('SettingsScreen', () => {
     mockSignOut.mockReset();
     mockLinkAccount.mockReset();
     mockTeardown.mockReset();
+    mockRequestWebConnect.mockReset();
+    mockAuthUser = null;
   });
 
   afterEach(() => {
@@ -208,6 +233,7 @@ describe('SettingsScreen', () => {
     afterEach(() => {
       Object.defineProperty(Platform, 'OS', { get: () => originalOS });
       process.env.EXPO_PUBLIC_WEB_URL = originalWebUrl;
+      mockIsFirebaseConfigured = false;
     });
 
     it('PC向けQRコードは表示せず、Webダッシュボードへの案内を表示する（トークンも発行しない）', async () => {
@@ -222,7 +248,7 @@ describe('SettingsScreen', () => {
       await flush();
 
       expect(mockCreatePairingToken).not.toHaveBeenCalled();
-      expect(allTexts(root).join('|')).toContain('パソコンでの閲覧はWebダッシュボードから');
+      expect(allTexts(root).join('|')).toContain('分析・検索など、より詳しく見るならWebダッシュボード');
       await act(async () => {
         root.unmount();
       });
@@ -262,6 +288,125 @@ describe('SettingsScreen', () => {
       expect(texts).toContain('Webダッシュボードへの案内');
       expect(texts).not.toContain('Web連携・バックアップ');
       expect(texts).not.toContain('スマホの日記データはそのまま、安全に保たれます');
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('匿名セッションなら「スマホと連携する」を表示し、押すと requestWebConnect を呼ぶ', async () => {
+      Object.defineProperty(Platform, 'OS', { get: () => 'web' });
+      mockIsFirebaseConfigured = true;
+      mockAuthUser = { uid: 'guest-1', provider: 'anonymous', isAnonymous: true };
+      mockRequestWebConnect.mockResolvedValue(undefined);
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      const texts = allTexts(root).join('|');
+      expect(texts).toContain('スマホと連携する');
+      expect(texts).not.toContain('ログアウトする');
+
+      await act(async () => {
+        findPressableByLabel(root, 'スマホと連携する').props.onPress();
+      });
+      expect(mockRequestWebConnect).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('連携する行を連打しても requestWebConnect は1回しか呼ばれない（busyガード）', async () => {
+      Object.defineProperty(Platform, 'OS', { get: () => 'web' });
+      mockIsFirebaseConfigured = true;
+      mockAuthUser = { uid: 'guest-1', provider: 'anonymous', isAnonymous: true };
+      mockRequestWebConnect.mockReturnValue(new Promise(() => {}));
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      act(() => {
+        const onPress = findPressableByLabel(root, 'スマホと連携する').props.onPress;
+        onPress();
+        onPress();
+      });
+      expect(mockRequestWebConnect).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('連携済み（非匿名）なら「ログアウトする」を表示し、押すと requestWebConnect を呼ぶ', async () => {
+      Object.defineProperty(Platform, 'OS', { get: () => 'web' });
+      mockIsFirebaseConfigured = true;
+      mockAuthUser = { uid: 'paired-1', provider: 'google', isAnonymous: false };
+      mockRequestWebConnect.mockResolvedValue(undefined);
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      const texts = allTexts(root).join('|');
+      expect(texts).toContain('ログアウトする');
+      expect(texts).not.toContain('スマホと連携する');
+
+      await act(async () => {
+        findPressableByLabel(root, 'ログアウトする').props.onPress();
+      });
+      expect(mockRequestWebConnect).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('ネイティブ（Platform.OS !== \'web\'）では連携/ログアウト行を表示しない', async () => {
+      mockAuthUser = { uid: 'u1', provider: 'anonymous', isAnonymous: true };
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      const texts = allTexts(root).join('|');
+      expect(texts).not.toContain('スマホと連携する');
+      expect(texts).not.toContain('ログアウトする');
+      await act(async () => {
+        root.unmount();
+      });
+    });
+
+    it('Web版でもFirebase未設定なら連携/ログアウト行を表示しない（連携ゲートが機能しないため）', async () => {
+      Object.defineProperty(Platform, 'OS', { get: () => 'web' });
+      mockIsFirebaseConfigured = false;
+      mockAuthUser = { uid: 'u1', provider: 'anonymous', isAnonymous: true };
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      const texts = allTexts(root).join('|');
+      expect(texts).not.toContain('スマホと連携する');
+      expect(texts).not.toContain('ログアウトする');
       await act(async () => {
         root.unmount();
       });

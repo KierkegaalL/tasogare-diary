@@ -1,10 +1,15 @@
+import { Platform } from 'react-native';
 import { create } from 'zustand';
 
 import { getAuthProvider, AuthLinkError } from '../services/auth';
 import { localAuthProvider } from '../services/auth/localAuthProvider';
+import { isFirebaseConfigured } from '../services/firebase/config';
 import type { AccountLinkKind, AuthUser } from '../services/auth';
 
-type AuthStatus = 'loading' | 'authenticated' | 'error';
+// 'needs-connect' は Web版（Platform.OS === 'web'）専用。既存セッションが無いとき、自動で匿名
+// セッションを発行せず連携画面（WebConnectGate）を表示する（ユーザー指摘: Webとモバイルで
+// 同じ日記を見られるようにするため）。
+type AuthStatus = 'loading' | 'authenticated' | 'error' | 'needs-connect';
 
 interface AuthState {
   user: AuthUser | null;
@@ -16,6 +21,13 @@ interface AuthState {
    * 成功で user を更新。失敗は AuthLinkError を投げて UI に委ねる（状態は変えない）。
    */
   linkAccount: (kind: AccountLinkKind) => Promise<void>;
+  /** WebConnectGate が QR/コード/Google/ゲストのいずれかでセッションを確立したときに呼ぶ。 */
+  completeConnect: (user: AuthUser) => void;
+  /**
+   * Web版の設定画面「スマホと連携する」/「ログアウトする」から呼ぶ。現在のセッションを終了し、
+   * 連携画面へ戻す（サインアウト失敗は無視して戻す＝連携画面側で新しいセッションに上書きされる）。
+   */
+  requestWebConnect: () => Promise<void>;
 }
 
 // 認証状態（architecture.md 第4.2節 authStore）。
@@ -26,9 +38,19 @@ export const useAuthStore = create<AuthState>((set) => ({
   initialize: async () => {
     try {
       const provider = getAuthProvider();
-      // 既存セッションを復元。無ければ自動で匿名IDを発行（モバイルはログイン不要）。
+      // 既存セッションを復元。
       const restored = await provider.init();
-      const user = restored ?? (await provider.signIn());
+      if (restored) {
+        set({ user: restored, status: 'authenticated' });
+        return;
+      }
+      // Web版で既存セッションが無ければ、連携画面へ（自動で匿名IDを発行しない）。
+      if (Platform.OS === 'web' && isFirebaseConfigured) {
+        set({ status: 'needs-connect' });
+        return;
+      }
+      // ネイティブはログイン不要のため自動で匿名IDを発行する。
+      const user = await provider.signIn();
       set({ user, status: 'authenticated' });
     } catch {
       // フォールバック: 設定プロバイダ（Firebase 匿名認証等）が失敗（例: 初回起動オフライン、
@@ -36,7 +58,17 @@ export const useAuthStore = create<AuthState>((set) => ({
       // TODO(Phase2): オンライン復帰時に local uid → Firebase uid の突合/移行を実装する。
       try {
         const restored = await localAuthProvider.init();
-        const user = restored ?? (await localAuthProvider.signIn());
+        if (restored) {
+          set({ user: restored, status: 'authenticated' });
+          return;
+        }
+        // このフォールバック経路でも Web版のガードは維持する（reviewer指摘: ここを素通りすると
+        // 「Web版では自動で匿名セッションを発行しない」という前提が静かに破られてしまう）。
+        if (Platform.OS === 'web' && isFirebaseConfigured) {
+          set({ status: 'needs-connect' });
+          return;
+        }
+        const user = await localAuthProvider.signIn();
         set({ user, status: 'authenticated' });
       } catch {
         set({ user: null, status: 'error' });
@@ -67,5 +99,17 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: null, status: 'error' });
       throw err;
     }
+  },
+  completeConnect: (user: AuthUser) => {
+    set({ user, status: 'authenticated' });
+  },
+  requestWebConnect: async () => {
+    const provider = getAuthProvider();
+    try {
+      await provider.signOut();
+    } catch {
+      // 失敗しても連携画面へは戻す（新しいセッションで上書きされる）。
+    }
+    set({ user: null, status: 'needs-connect' });
   },
 }));

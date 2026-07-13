@@ -8,7 +8,7 @@
 
 ## 0. 共通規約
 
-### 0.1 画面一覧（`visual-design.html` `.nav` ①〜⑪）
+### 0.1 画面一覧（`visual-design.html` `.nav` ①〜⑬）
 | # | 画面 | ID | 種別 | 節 |
 |---|---|---|---|---|
 | ① | ホーム | `home` | モバイル | 3.1 |
@@ -20,6 +20,7 @@
 | ⑥ | カレンダー/一覧 | `calendar` | モバイル | 3.7 |
 | ⑦ | 詳細＋AI対話 | `detail` | モバイル | 3.8 |
 | ⑧ | 設定（Webで見る／バックアップ統合） | `settings` | モバイル | 3.9 |
+| ⑬ | スマホと連携（Expo Web専用の連携ゲート） | `webConnectGate` | モバイル（Web版のみ） | 3.10 |
 | ⑩ | ダッシュボード | `dashboardView` | Web | 4.1 |
 | ⑪ | デバイスをつなぐ | `connectView` | Web | 4.2 |
 | ⑫ | 日記一覧（Web） | `entriesView` | Web | 4.3 |
@@ -134,13 +135,21 @@ graph LR
 ### 3.9 設定（`settings`）
 > **改訂（2026-07-12）**: 旧構成（「Webで見る」「バックアップする」の2行→いずれもWebConnect画面へ遷移）は、両方が同じ画面に着地し利用者に機能の区別が伝わらないというユーザー指摘により撤廃。**Webで見る（QR）とバックアップ（Apple/Google連携）は個別画面ではなく設定画面に直接埋め込む**（旧 `webConnect` 画面／3.10節は本節に統合し廃止）。
 - **目的**: Web連携（QR）・バックアップ（Apple/Google連携）・アカウント削除の提供。
-- **要素**: ヘッダー（戻る＋「設定」）／本文はスクロール可能。上から: **Web連携セクション**（説明「パソコンでも、書いた日記をそのまま見られます」＋「下のコードを、パソコンのブラウザで読み取ってください」／QR（`.qr-card`）／タイマー（`.qr-timer-track`/`.qr-timer-fill`+`.qr-timer-label`「60秒ごとに更新」）／注記「スマホの日記データはそのまま、安全に保たれます」）→ **バックアップセクション**（「このデータを恒久アカウントに紐づける」＋Apple/Google連携ボタン。**Apple/Google アカウント連携で担保（U-13決定）**）→ 「アカウントを削除する」（`.settings-row`「日記・対話・連携情報がすべて削除されます」）。
+- **要素**: ヘッダー（戻る＋「設定」）／本文はスクロール可能。上から: **Web連携セクション**（説明「パソコンでも、書いた日記をそのまま見られます」＋「下のコードを、パソコンのブラウザで読み取ってください」／QR（`.qr-card`）／タイマー（`.qr-timer-track`/`.qr-timer-fill`+`.qr-timer-label`「60秒ごとに更新」）／注記「スマホの日記データはそのまま、安全に保たれます」）→ **バックアップセクション**（「このデータを恒久アカウントに紐づける」＋Apple/Google連携ボタン。**Apple/Google アカウント連携で担保（U-13決定）**）→（Web版のみ `WebAccountRow`「スマホと連携する」／「ログアウトする」。詳細は本節末尾）→ 「アカウントを削除する」（`.settings-row`「日記・対話・連携情報がすべて削除されます」）。
 - **遷移**: 画面遷移なし（すべて本画面内で完結）。アカウント削除成功時のみ `MainTabs`/`Home` へ遷移。
 - **実装メモ（実装済み）**: `src/screens/settings/SettingsScreen.tsx`。QR発行ロジック（`createPairingToken`・60秒毎再発行）と連携UI（Apple/Google リンク昇格。`AccountLinkSection`）を同ファイル内の `WebConnectSection`/`AccountLinkSection` として実装（旧 `WebConnectScreen.tsx` を統合・削除）。**Web版（`npx expo start --web` 等でこの画面自体をブラウザ表示した場合）はQRを表示しない**（`Platform.OS === 'web'` を `WebConnectSection` 内で判定。「パソコンで読み取るQR」をパソコン上に表示するのは自己矛盾であり、かつ同等のカメラ読取機能は既に Web ダッシュボード（`web/`・4.2節）に実装済みのため、二重実装を避けて`WebDashboardNotice`という案内（`EXPO_PUBLIC_WEB_URL` 設定時はダッシュボードへ遷移する**ボタン**を表示。テキストリンクだと見つけづらいという指摘を受けボタン化）に差し替える。ユーザー指摘により追加）。**Web版では副題も「Webダッシュボードへの案内」に差し替え、ネイティブ向けの注記「スマホの日記データはそのまま、安全に保たれます」は表示しない**（QR/バックアップ操作がスマホ側で完結する前提の文言であり、Web版でそのまま出すと内容と噛み合わず自己矛盾になるため。`SettingsScreen`/`WebConnectSection` 内で `Platform.OS === 'web'` 判定。ネイティブ側の表示・文言は変更なし。ユーザー指摘により追加）。**バックアップの連携ボタンは連携が実際に可能な場合のみ表示する**（`useLinkableAccountKinds`＝`src/hooks/useAccountLink.ts`。匿名アカウントかつネイティブ資格情報ソース導入済みの開発ビルドが条件、`environments.md`）。既に恒久化済み、または既定の Expo Go 等で導入前の環境では連携ボタンを出さない（「押しても何も起きない」導線を避けるため）。**「アカウントを削除する」行はタップで画面内に確認UI（`.settings-row` の代わりに警告文＋「本当に削除する」／「キャンセル」）を表示する2段階確認**（`DeleteAccountSection`）。確認後の削除は `deleteAccount()`（`src/services/account.ts`）→成功時は `authStore.signOut()`（削除済みセッションをクリアし新しい匿名セッションを確立）→ `MainTabs`/`Home` へ遷移。失敗時は確認UIのままエラー文を表示し再試行できる。**Worker 未設定時（モック運用）は行自体を表示しない**（`isAccountDeletionAvailable`。削除は不可逆なため「削除できたふり」をしない方針）。
 - **データ**: Functions が `pairings` に短命トークン発行（TTL 60s、[data.md](data.md) 第3.6節）。60秒ごとに再発行しQR更新。
 - **状態**: QR発行失敗＝再試行。タイマー満了＝自動更新。オフライン時はQR発行を行わずその旨を表示。
 - **A11y**: QRは装飾。代替としてApple/Googleサインインを常時提供。
 - **将来**: reduced-motion 等の設定項目を追加。
+- **Web版の連携/ログアウト行（実装済み）**: `Platform.OS === 'web'` のとき、`WebAccountRow` を **「アカウントを削除する」行の直上**（`WebConnectSection` の外・`DeleteAccountSection` の直前）に表示する（3.10節「スマホと連携」画面と対）。見た目は「アカウントを削除する」と同じ `SettingsRow`（`.settings-row`。行全体がタップ対象、連打防止の `busy`/`disabled` 付き）を再利用し、`user.isAnonymous` で「スマホと連携する」（3.10節の連携ゲートへ戻す）／「ログアウトする」を出し分ける（ユーザー指摘により、独自レイアウト＋別ボタンの構成から変更）。Firebase 未設定時は連携ゲート自体が機能しないため本行を表示しない。既存の `WebDashboardNotice`（別プロジェクト `web/` のダッシュボードへの案内）とは役割を分け、こちらは「このブラウザをそのまま使う」、`WebDashboardNotice` は「分析・検索など別アプリの機能を使う」という文言に整理した（ユーザー指摘で本アプリ自体のExpo Web面に連携ゲートを追加した際、2つの案内が並ぶ混乱を避けるため）。
+
+### 3.10 スマホと連携（`webConnectGate`・Expo Web専用）
+- **目的**: モバイルアプリをExpo Webでブラウザ表示した際、自動で新規（空）の匿名セッションを発行せず、スマホと同じ日記を見られるよう連携を促す。**Web専用**（`Platform.OS === 'web'`）で、ネイティブ（iOS/Android）には存在しない。
+- **表示条件**: `Platform.OS === 'web'` かつ Firebase 設定済みで、既存セッション（前回連携済み、またはゲスト利用）が無いときに `App.tsx` が `RootNavigator` の代わりに本画面を表示する（`authStore` の `'needs-connect'` ステータス）。
+- **要素**: タイトル「スマホと連携する」から「Apple でサインイン」注記までを、`web/` の `/connect`（`CenteredCard`）と同じ **白枠のカード**（背景・枠線・角丸を共有トークン経由で一致させたもの）で囲む。内訳＝タイトル／説明文／「カメラで読み取る」（QRライブ読取）／コード貼り付け欄＋「つなぐ」／「または」区切り／「Google でサインイン」／「Apple でサインイン」（未実装のため無効化＋注記）。**カードの外側**に「サインインせずに利用する」＋注記「あとから設定画面でいつでもスマホと連携できます。」を配置する（ユーザー指摘により、カードに内包する構成から変更）。
+- **遷移**: いずれかの導線で認証確立→`authStore.completeConnect(user)`→通常のアプリ（`RootNavigator`）へ。設定画面（3.9節の `WebAccountRow`）の「スマホと連携する」／「ログアウトする」から `authStore.requestWebConnect()` で本画面へ戻る。
+- **実装メモ（実装済み）**: `src/screens/webConnect/WebConnectGate.tsx`＋`QrCameraScanner.tsx`（カメラQR読取。`getUserMedia`+`jsQR`。RNには`<video>/<canvas>`要素が無いため`View`のrefから実DOMノードを取得し要素を直接生成する。`web/src/components/QrScanner.tsx`と同じ方式を移植）。コード貼り付けは`src/services/pairing.ts`の`extractPairingToken`/`signInWithPairingToken`（Worker `/verifyPairingToken` を未認証で呼び`signInWithCustomToken`）。Googleサインインは`src/services/auth/webOAuth.ts`の`signInWithGoogleWeb`（`signInWithPopup`。ポップアップ用リゾルバ`browserPopupRedirectResolver`を明示指定）。ゲスト利用は`getAuthProvider().signIn()`（匿名サインイン）。`AppProviders`（`SafeAreaProvider`）配下で描画する必要がある（`SafeAreaView`使用のため。実機確認で発見）。
 
 ---
 
