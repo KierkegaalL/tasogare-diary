@@ -105,27 +105,37 @@ describe('getPairing', () => {
 });
 
 describe('getEntry', () => {
-  it('mask.fieldPaths で mood/bodyText のみ取得する', async () => {
+  it('mask.fieldPaths で mood/bodyText/date のみ取得する', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ fields: { mood: { stringValue: 'tender' }, bodyText: { stringValue: '本文' } } }),
+      json: async () => ({
+        fields: {
+          mood: { stringValue: 'tender' },
+          bodyText: { stringValue: '本文' },
+          date: { stringValue: '2026-07-15' },
+        },
+      }),
     });
 
     const entry = await getEntry(ENV, 'u1', 'e1');
 
-    expect(entry).toEqual({ mood: 'tender', bodyText: '本文' });
+    expect(entry).toEqual({ mood: 'tender', bodyText: '本文', date: '2026-07-15' });
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`${DOCS_BASE}/users/u1/entries/e1?mask.fieldPaths=mood&mask.fieldPaths=bodyText`);
+    expect(url).toBe(
+      `${DOCS_BASE}/users/u1/entries/e1?mask.fieldPaths=mood&mask.fieldPaths=bodyText&mask.fieldPaths=date`,
+    );
   });
 
   it('mood が無い（スキップされた日）場合は null を返す値として扱う', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ fields: { bodyText: { stringValue: '本文のみ' } } }),
+      json: async () => ({
+        fields: { bodyText: { stringValue: '本文のみ' }, date: { stringValue: '2026-07-15' } },
+      }),
     });
-    expect(await getEntry(ENV, 'u1', 'e1')).toEqual({ mood: null, bodyText: '本文のみ' });
+    expect(await getEntry(ENV, 'u1', 'e1')).toEqual({ mood: null, bodyText: '本文のみ', date: '2026-07-15' });
   });
 
   it('404（存在しないentryId）は null を返す', async () => {
@@ -142,7 +152,16 @@ describe('getEntry', () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ fields: { bodyText: { stringValue: '' } } }),
+      json: async () => ({ fields: { bodyText: { stringValue: '' }, date: { stringValue: '2026-07-15' } } }),
+    });
+    expect(await getEntry(ENV, 'u1', 'e1')).toBeNull();
+  });
+
+  it('date 欠落（壊れたドキュメント）は null を返す', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ fields: { bodyText: { stringValue: '本文' } } }),
     });
     expect(await getEntry(ENV, 'u1', 'e1')).toBeNull();
   });

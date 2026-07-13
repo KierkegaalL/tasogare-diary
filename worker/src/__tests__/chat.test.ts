@@ -2,15 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../firestore', () => ({
   getEntry: vi.fn(),
+  queryEntriesByDateRange: vi.fn(),
 }));
 
 import { handleChat } from '../index';
-import { getEntry } from '../firestore';
+import { getEntry, queryEntriesByDateRange } from '../firestore';
 import type { Env } from '../env';
 import type { LlmProvider } from '../llm';
 
 const ENV = {} as Env;
 const mockGetEntry = getEntry as unknown as ReturnType<typeof vi.fn>;
+const mockQueryEntriesByDateRange = queryEntriesByDateRange as unknown as ReturnType<typeof vi.fn>;
 
 function llmStub(reply = '相づち'): LlmProvider {
   return {
@@ -26,6 +28,8 @@ function llmStub(reply = '相づち'): LlmProvider {
 describe('handleChat の文脈補完', () => {
   beforeEach(() => {
     mockGetEntry.mockReset();
+    mockQueryEntriesByDateRange.mockReset();
+    mockQueryEntriesByDateRange.mockResolvedValue([]);
   });
 
   it('entryId が有効なら getEntry の結果を system プロンプトへ注入する', async () => {
@@ -89,5 +93,122 @@ describe('handleChat の文脈補完', () => {
     const res = await handleChat(ENV, llm, 'u1', { message: 'm', history: [], entryId: 'e1' });
 
     expect(res.reply).toBe('大丈夫だよ');
+  });
+});
+
+// 関連する過去エントリの「要約」補完（api-contract.md 3.4 備考・第10章）。
+// 当該エントリの日付を起点に直近14日（当日を含まない）の集計値（気分割合・頻出語）のみを
+// system プロンプトへ付与する。本文は一切含めない（最小送信の原則、第8章）。
+describe('handleChat の過去の傾向ノート', () => {
+  beforeEach(() => {
+    mockGetEntry.mockReset();
+    mockQueryEntriesByDateRange.mockReset();
+  });
+
+  it('当該エントリの日付を起点に直近14日（前日まで）の範囲で過去エントリを取得する', async () => {
+    mockGetEntry.mockResolvedValue({ mood: 'calm', bodyText: '穏やかな一日', date: '2026-07-15' });
+    mockQueryEntriesByDateRange.mockResolvedValue([]);
+    const llm = llmStub();
+
+    await handleChat(ENV, llm, 'u1', { message: 'm', history: [], entryId: 'e1' });
+
+    expect(mockQueryEntriesByDateRange).toHaveBeenCalledWith(ENV, 'u1', '2026-07-01', '2026-07-14');
+  });
+
+  it('過去エントリが3件以上あれば気分割合・頻出語を system プロンプトへ注入する', async () => {
+    mockGetEntry.mockResolvedValue({ mood: 'calm', bodyText: '穏やかな一日', date: '2026-07-15' });
+    mockQueryEntriesByDateRange.mockResolvedValue([
+      { date: '2026-07-01', mood: 'heavy', words: [{ text: '疲れた', category: 'mood' }] },
+      { date: '2026-07-02', mood: 'heavy', words: [{ text: '疲れた', category: 'mood' }] },
+      { date: '2026-07-03', mood: 'calm', words: [{ text: 'カフェ', category: 'event' }] },
+    ]);
+    const llm = llmStub();
+
+    await handleChat(ENV, llm, 'u1', { message: 'm', history: [], entryId: 'e1' });
+
+    const opts = (llm.callText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(opts.system).toContain('直近14日間（3件）の傾向');
+    expect(opts.system).toContain('重い67%');
+    expect(opts.system).toContain('よく出た言葉: 疲れた、カフェ');
+  });
+
+  it('過去エントリが3件未満なら傾向ノートを付与しない（データが乏しいため）', async () => {
+    mockGetEntry.mockResolvedValue({ mood: 'calm', bodyText: '穏やかな一日', date: '2026-07-15' });
+    mockQueryEntriesByDateRange.mockResolvedValue([
+      { date: '2026-07-01', mood: 'heavy', words: [] },
+      { date: '2026-07-02', mood: 'calm', words: [] },
+    ]);
+    const llm = llmStub();
+
+    await handleChat(ENV, llm, 'u1', { message: 'm', history: [], entryId: 'e1' });
+
+    const opts = (llm.callText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(opts.system).not.toContain('直近14日間');
+  });
+
+  it('過去エントリが3件以上でも全件 mood:null なら気分割合を出さず頻出語のみ注入する', async () => {
+    // 気分をスキップした日ばかりだと moodDistribution は合計0%になり得るため、
+    // 「穏やか0%／ゆらぎ0%／重い0%」という不自然な数値を出さないことを確認する。
+    mockGetEntry.mockResolvedValue({ mood: 'calm', bodyText: '穏やかな一日', date: '2026-07-15' });
+    mockQueryEntriesByDateRange.mockResolvedValue([
+      { date: '2026-07-01', mood: null, words: [{ text: 'カフェ', category: 'event' }] },
+      { date: '2026-07-02', mood: null, words: [{ text: 'カフェ', category: 'event' }] },
+      { date: '2026-07-03', mood: null, words: [{ text: '散歩', category: 'event' }] },
+    ]);
+    const llm = llmStub();
+
+    await handleChat(ENV, llm, 'u1', { message: 'm', history: [], entryId: 'e1' });
+
+    const opts = (llm.callText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(opts.system).toContain('直近14日間（3件）の傾向');
+    expect(opts.system).not.toContain('0%');
+    expect(opts.system).toContain('よく出た言葉: カフェ、散歩');
+  });
+
+  it('過去エントリに気分はあるが言葉が1件も無ければ気分割合のみ注入する', async () => {
+    mockGetEntry.mockResolvedValue({ mood: 'calm', bodyText: '穏やかな一日', date: '2026-07-15' });
+    mockQueryEntriesByDateRange.mockResolvedValue([
+      { date: '2026-07-01', mood: 'heavy', words: [] },
+      { date: '2026-07-02', mood: 'heavy', words: [] },
+      { date: '2026-07-03', mood: 'calm', words: [] },
+    ]);
+    const llm = llmStub();
+
+    await handleChat(ENV, llm, 'u1', { message: 'm', history: [], entryId: 'e1' });
+
+    const opts = (llm.callText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(opts.system).toContain('直近14日間（3件）の傾向: 穏やか33%／ゆらぎ0%／重い67%');
+    // SYSTEM_CHAT のペルソナ説明文自体に「よく出た言葉」という語（コロンなし）が含まれるため、
+    // 傾向ノートが実際に生成する「よく出た言葉: 」（コロン付き）で判定する。
+    expect(opts.system).not.toContain('よく出た言葉: ');
+  });
+
+  it('entry.date が無ければ過去エントリ取得自体を行わない（基準日が無いため）', async () => {
+    mockGetEntry.mockResolvedValue({ mood: 'calm', bodyText: '穏やかな一日' });
+    const llm = llmStub();
+
+    await handleChat(ENV, llm, 'u1', { message: 'm', history: [], entryId: 'e1' });
+
+    expect(mockQueryEntriesByDateRange).not.toHaveBeenCalled();
+  });
+
+  it('entryId 未指定（entry が無い）なら過去エントリ取得も行わない', async () => {
+    const llm = llmStub();
+
+    await handleChat(ENV, llm, 'u1', { message: 'm', history: [] });
+
+    expect(mockQueryEntriesByDateRange).not.toHaveBeenCalled();
+  });
+
+  it('queryEntriesByDateRange が例外を投げても対話を止めず、傾向ノートなしで継続する', async () => {
+    mockGetEntry.mockResolvedValue({ mood: 'calm', bodyText: '穏やかな一日', date: '2026-07-15' });
+    mockQueryEntriesByDateRange.mockRejectedValue(new Error('firestore down'));
+    const llm = llmStub('大丈夫だよ');
+
+    const res = await handleChat(ENV, llm, 'u1', { message: 'm', history: [], entryId: 'e1' });
+
+    expect(res.reply).toBe('大丈夫だよ');
+    const opts = (llm.callText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(opts.system).not.toContain('直近14日間');
   });
 });
