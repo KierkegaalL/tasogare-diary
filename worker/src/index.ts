@@ -10,6 +10,7 @@ import type { EntrySummary } from './firestore';
 import { aggregate } from './insight';
 import { DAY_MS, toDateString } from './dateUtils';
 import { handleCreatePairingToken, handleVerifyPairingToken } from './pairing';
+import { handleMigrateToNativeAuth } from './migration';
 import {
   PROMPT_VERSION,
   SYSTEM_ADJUST_DIARY,
@@ -394,6 +395,12 @@ const ROUTES: Record<string, Route> = {
   '/verifyPairingToken': {
     requireAuth: false, // Web 初回は未サインインで照合する（api-contract 5.2）。
     handler: (env, _uid, data) => handleVerifyPairingToken(env, data),
+  },
+  // ネイティブ移行ブリッジ（migration.ts / docs/migration-react-native-firebase.md 第4章）。
+  // 本人の ID トークンで確立した uid に対し、同一 uid のカスタムトークンを発行する。
+  '/migrateToNativeAuth': {
+    requireAuth: true,
+    handler: (env, uid, _data) => handleMigrateToNativeAuth(env, uid as string),
   },
   // アカウント削除（api-contract 第6章）。本人の ID トークンで uid を確定してから消す。
   '/deleteAccount': {

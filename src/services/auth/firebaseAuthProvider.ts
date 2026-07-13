@@ -52,6 +52,13 @@ export const firebaseAuthProvider: AuthProvider = {
   signOut: async () => {
     await firebaseSignOut(getFirebaseAuth());
   },
+  getIdToken: async (): Promise<string> => {
+    const user = getFirebaseAuth().currentUser;
+    if (!user) {
+      throw new Error('Firebase 匿名セッションがありません（ID トークンを取得できません）。');
+    }
+    return user.getIdToken();
+  },
   linkWith: async (kind: AccountLinkKind): Promise<AuthUser> => {
     const currentUser = getFirebaseAuth().currentUser;
     if (!currentUser) {

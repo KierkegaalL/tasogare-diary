@@ -23,6 +23,14 @@ export interface AuthProvider {
   /** サインアウト。 */
   signOut(): Promise<void>;
   /**
+   * 現在のセッションの Firebase ID トークンを取得する（Worker 呼び出しの Authorization に使う）。
+   * プロバイダ抽象を経由させることで、JS SDK / ネイティブ SDK いずれのセッションでも同じ経路で
+   * トークンを得られる（claudeWorker/client.ts。migration-react-native-firebase.md 第6章）。
+   * 実トークンを持たないプロバイダ（localAuthProvider）は throw する（偽トークンで静かに
+   * unauthenticated 失敗するのを防ぐ）。
+   */
+  getIdToken(): Promise<string>;
+  /**
    * 現在の匿名アカウントを Apple/Google の恒久アカウントへリンク昇格する（uid・データ維持）。
    * 対応しないプロバイダ（ローカル匿名）では未実装（省略）。
    */

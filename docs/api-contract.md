@@ -247,6 +247,22 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 
 ---
 
+## 5.5 ネイティブ移行ブリッジ（`migrateToNativeAuth`）
+
+Firestore オフライン永続化のネイティブ移行（[migration-react-native-firebase.md](migration-react-native-firebase.md) 第4章）で、既存の JS SDK 匿名ユーザーの **uid を維持したまま** `@react-native-firebase/auth` のネイティブセッションへ引き継ぐためのエンドポイント。何も対策しないとネイティブ SDK が別セッションストレージに「初回起動」と誤認して新しい uid を作成し、既存の日記データ（`users/{旧uid}/...`）が見えなくなるため、サーバ側でカスタムトークンを橋渡しする。
+
+### 5.5.1 `migrateToNativeAuth` — uid 引き継ぎ（モバイル、要認証）
+- Request: `{}`（uid は `Authorization: Bearer <JS SDK の ID トークン>` から確定。クライアントは対象 uid を指定できない）。
+- 処理: ID トークンを検証して uid を確定 → **同一 uid のカスタムトークン**を発行（`verifyPairingToken` と同じ `mintCustomToken` を再利用）。
+- Response:
+```json
+{ "customToken": "<Firebase custom token>" }
+```
+- 呼び出し側は `@react-native-firebase/auth` の `auth().signInWithCustomToken(customToken)` でサインインする。これで uid・Apple/Google のリンク状態・Firestore データがすべてそのまま引き継がれる。**実装済み**（`worker/src/migration.ts`。クライアント配線はネイティブ Auth プロバイダ側で実装）。
+- 備考: カスタムトークンの署名にはサービスアカウント秘密鍵（`FIREBASE_SERVICE_ACCOUNT`）が必要で、これはクライアントに置けないためサーバ（Worker）側でのみ実行できる。失敗時のフォールバック（Worker 到達不可時は現行 JS SDK 経路を維持し次回起動で再試行）はクライアント側の責務（migration-react-native-firebase.md 第9章）。
+
+---
+
 ## 6. アカウント・データ削除
 
 ### 6.1 `deleteAccount` — アカウント削除（要認証）
