@@ -26,20 +26,26 @@ async function getIdToken(): Promise<string> {
   }
 }
 
-export async function callClaudeWorker<Req, Res>(path: string, data: Req): Promise<Res> {
+export async function callClaudeWorker<Req, Res>(
+  path: string,
+  data: Req,
+  options: { requireAuth?: boolean } = {},
+): Promise<Res> {
+  const { requireAuth = true } = options;
   if (!claudeWorkerBaseUrl) {
     throw new ClaudeWorkerError('internal', 'Claude Worker の URL が未設定です。');
   }
-  const idToken = await getIdToken();
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (requireAuth) {
+    headers.Authorization = `Bearer ${await getIdToken()}`;
+  }
 
   let response: Response;
   try {
     response = await fetch(`${claudeWorkerBaseUrl}${path}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
+      headers,
       body: JSON.stringify(data),
     });
   } catch {

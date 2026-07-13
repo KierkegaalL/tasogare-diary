@@ -11,6 +11,7 @@ import {
 
 import { AppProviders } from './src/app/providers/AppProviders';
 import { RootNavigator } from './src/app/navigation/RootNavigator';
+import { WebConnectGate } from './src/screens/webConnect/WebConnectGate';
 import { useAuthStore } from './src/stores/authStore';
 import { useDraftStore } from './src/stores/draftStore';
 import { useEntriesStore } from './src/stores/entriesStore';
@@ -55,6 +56,18 @@ export default function App() {
       <View style={styles.center}>
         <Text style={styles.errorText}>起動に失敗しました。アプリを再起動してください。</Text>
       </View>
+    );
+  }
+
+  // Web版（Platform.OS === 'web'）専用。既存セッションが無い間は連携画面を表示し、
+  // 自動で匿名セッションを発行しない（ユーザー指摘: Webとモバイルで同じ日記を見られるようにする）。
+  if (status === 'needs-connect') {
+    // WebConnectGate は SafeAreaView を使うため AppProviders（SafeAreaProvider）配下で描画する
+    // 必要がある（実機確認で ForwardRef のエラーとして顕在化・発見）。
+    return (
+      <AppProviders>
+        <WebConnectGate />
+      </AppProviders>
     );
   }
 

@@ -18,6 +18,7 @@ import { ScreenShell } from '../../components/ScreenShell';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { useLinkableAccountKinds } from '../../hooks/useAccountLink';
 import { deleteAccount, isAccountDeletionAvailable } from '../../services/account';
+import { isFirebaseConfigured } from '../../services/firebase/config';
 import { createPairingToken, isPairingAvailable, pairingQrPayload } from '../../services/pairing';
 import { AuthLinkError, linkKindLabel } from '../../services/auth';
 import type { AccountLinkKind } from '../../services/auth';
@@ -54,7 +55,8 @@ function WebConnectSection() {
   const isWeb = Platform.OS === 'web';
   return (
     <View style={styles.section}>
-      {isWeb ? <WebDashboardNotice /> : <QrPairingBody />}
+      {isWeb ? <WebAccountRow /> : <QrPairingBody />}
+      {isWeb ? <WebDashboardNotice /> : null}
       <AccountLinkSection />
       {/* 「スマホの日記データは…」はネイティブ（QR/バックアップ操作がスマホ側で完結する）向けの
           文言。Web版でもこのまま出すと「スマホ」という前提自体が噛み合わず自己矛盾になるため、
@@ -65,15 +67,17 @@ function WebConnectSection() {
 }
 
 // Web ダッシュボードへの案内（screen.md 4.2 の /connect）。EXPO_PUBLIC_WEB_URL が
-// 設定されていればリンクを開けるようにする。
+// 設定されていればリンクを開けるようにする。上の WebAccountRow（このブラウザ自体を連携）とは
+// 別の目的: こちらは分析・検索など閲覧専用の機能が揃った別アプリへの案内（reviewer指摘を受け、
+// 「この画面でも見られるのに別アプリへ誘導される」混乱を減らすため文言を調整）。
 function WebDashboardNotice() {
   const webUrl = process.env.EXPO_PUBLIC_WEB_URL;
   const [error, setError] = useState(false);
   return (
     <View style={styles.center}>
-      <Text style={styles.prompt}>パソコンでの閲覧はWebダッシュボードから</Text>
+      <Text style={styles.prompt}>分析・検索など、より詳しく見るならWebダッシュボード</Text>
       <Text style={styles.promptSub}>
-        スマホアプリの設定画面に表示されるQRコードを、Webダッシュボードのカメラで読み取ってください。
+        こちらのブラウザ以外の端末で開く場合は、そちらの設定画面のQRコードをWebダッシュボードのカメラで読み取ってください。
       </Text>
       {webUrl ? (
         <PrimaryButton
@@ -86,6 +90,46 @@ function WebDashboardNotice() {
         />
       ) : null}
       {error ? <Text style={styles.confirmError}>リンクを開けませんでした。</Text> : null}
+    </View>
+  );
+}
+
+// Web版専用: 未連携（匿名セッション）なら「スマホと連携する」、連携済み（非匿名）なら
+// 「ログアウトする」を出し分ける（ユーザー指摘）。いずれも requestWebConnect（サインアウト＋
+// 連携画面 WebConnectGate へ戻す）を呼ぶだけでよい設計にしている。
+function WebAccountRow() {
+  const user = useAuthStore((s) => s.user);
+  const requestWebConnect = useAuthStore((s) => s.requestWebConnect);
+  const [busy, setBusy] = useState(false);
+
+  // Firebase未設定時はそもそも連携ゲートが機能しない（WebConnectGateはWorker/Firebase前提）ため
+  // 導線自体を出さない（reviewer指摘: 出し分けの誤表示・機能しないボタンを避ける防御）。
+  if (!user || !isFirebaseConfigured) return null;
+
+  // requestWebConnect は成功時に authStore.status を 'needs-connect' へ変え、App.tsx が
+  // WebConnectGate へ切り替わりこの画面自体がアンマウントされる（失敗しても内部で吸収し必ず
+  // 遷移する設計＝authStore.ts 参照）。そのため busy を戻す処理は持たない
+  // （アンマウント後の setState を避けるため。reviewer指摘を先取り）。
+  const onPress = () => {
+    setBusy(true);
+    void requestWebConnect();
+  };
+
+  return (
+    <View style={styles.linkSection}>
+      {user.isAnonymous ? (
+        <>
+          <Text style={styles.linkTitle}>スマホと連携する</Text>
+          <Text style={styles.linkSub}>書いた日記を、ここでもそのまま読めるようにします。</Text>
+          <PrimaryButton label={busy ? '連携画面へ…' : '連携する'} variant="ghost" disabled={busy} onPress={() => void onPress()} />
+        </>
+      ) : (
+        <>
+          <Text style={styles.linkTitle}>ログアウトする</Text>
+          <Text style={styles.linkSub}>このブラウザでのサインインを終了します。</Text>
+          <PrimaryButton label={busy ? 'ログアウトしています…' : 'ログアウト'} variant="ghost" disabled={busy} onPress={() => void onPress()} />
+        </>
+      )}
     </View>
   );
 }

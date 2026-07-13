@@ -20,10 +20,11 @@ import { getFirebaseAuth } from '../firebase/app';
 // リンク昇格（linkWith）: 匿名アカウントを Apple/Google の恒久アカウントへ linkWithCredential で
 // 昇格する（uid・Firestore データを維持したまま）。ネイティブの資格情報取得は credentialSource
 // シーム経由で、既定（Expo Go）では 'unavailable' になる（environments.md）。
-const toAuthUser = (user: User): AuthUser => ({
+export const toAuthUser = (user: User): AuthUser => ({
   uid: user.uid,
   provider: 'anonymous',
   displayName: user.displayName ?? undefined,
+  isAnonymous: user.isAnonymous,
 });
 
 // プロバイダ非依存の資格情報を Firebase の AuthCredential に組み立てる（Firebase 依存をここに閉じ込める）。
@@ -66,7 +67,12 @@ export const firebaseAuthProvider: AuthProvider = {
 
     try {
       const result = await linkWithCredential(currentUser, credential);
-      return { uid: result.user.uid, provider: kind, displayName: result.user.displayName ?? undefined };
+      return {
+        uid: result.user.uid,
+        provider: kind,
+        displayName: result.user.displayName ?? undefined,
+        isAnonymous: false,
+      };
     } catch (err) {
       // 資格情報が別アカウントで使用中（credential-already-in-use）等はデータ非移行になるため、
       // 黙って別アカウントへサインインし直さず、UI へ写像したエラーを返して利用者に委ねる。

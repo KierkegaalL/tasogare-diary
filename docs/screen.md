@@ -8,7 +8,7 @@
 
 ## 0. 共通規約
 
-### 0.1 画面一覧（`visual-design.html` `.nav` ①〜⑪）
+### 0.1 画面一覧（`visual-design.html` `.nav` ①〜⑬）
 | # | 画面 | ID | 種別 | 節 |
 |---|---|---|---|---|
 | ① | ホーム | `home` | モバイル | 3.1 |
@@ -20,6 +20,7 @@
 | ⑥ | カレンダー/一覧 | `calendar` | モバイル | 3.7 |
 | ⑦ | 詳細＋AI対話 | `detail` | モバイル | 3.8 |
 | ⑧ | 設定（Webで見る／バックアップ統合） | `settings` | モバイル | 3.9 |
+| ⑬ | スマホと連携（Expo Web専用の連携ゲート） | `webConnectGate` | モバイル（Web版のみ） | 3.10 |
 | ⑩ | ダッシュボード | `dashboardView` | Web | 4.1 |
 | ⑪ | デバイスをつなぐ | `connectView` | Web | 4.2 |
 | ⑫ | 日記一覧（Web） | `entriesView` | Web | 4.3 |
@@ -141,6 +142,14 @@ graph LR
 - **状態**: QR発行失敗＝再試行。タイマー満了＝自動更新。オフライン時はQR発行を行わずその旨を表示。
 - **A11y**: QRは装飾。代替としてApple/Googleサインインを常時提供。
 - **将来**: reduced-motion 等の設定項目を追加。
+- **Web版の連携/ログアウト行（実装済み）**: `Platform.OS === 'web'` のとき、上記の Web連携セクション内に `WebAccountRow` を追加表示する（3.10節「スマホと連携」画面と対）。`user.isAnonymous` で「スマホと連携する」（3.10節の連携ゲートへ戻す）／「ログアウトする」を出し分ける。Firebase 未設定時は連携ゲート自体が機能しないため本行を表示しない。既存の `WebDashboardNotice`（別プロジェクト `web/` のダッシュボードへの案内）とは役割を分け、こちらは「このブラウザをそのまま使う」、`WebDashboardNotice` は「分析・検索など別アプリの機能を使う」という文言に整理した（ユーザー指摘で本アプリ自体のExpo Web面に連携ゲートを追加した際、2つの案内が並ぶ混乱を避けるため）。
+
+### 3.10 スマホと連携（`webConnectGate`・Expo Web専用）
+- **目的**: モバイルアプリをExpo Webでブラウザ表示した際、自動で新規（空）の匿名セッションを発行せず、スマホと同じ日記を見られるよう連携を促す。**Web専用**（`Platform.OS === 'web'`）で、ネイティブ（iOS/Android）には存在しない。
+- **表示条件**: `Platform.OS === 'web'` かつ Firebase 設定済みで、既存セッション（前回連携済み、またはゲスト利用）が無いときに `App.tsx` が `RootNavigator` の代わりに本画面を表示する（`authStore` の `'needs-connect'` ステータス）。
+- **要素**: タイトル「スマホと連携する」／説明文／「カメラで読み取る」（QRライブ読取）／コード貼り付け欄＋「つなぐ」／「または」区切り／「Google でサインイン」／「Apple でサインイン」（未実装のため無効化＋注記）／区切り線／「サインインせずに利用する」＋注記「あとから設定画面でいつでもスマホと連携できます。」。
+- **遷移**: いずれかの導線で認証確立→`authStore.completeConnect(user)`→通常のアプリ（`RootNavigator`）へ。設定画面（3.9節の `WebAccountRow`）の「スマホと連携する」／「ログアウトする」から `authStore.requestWebConnect()` で本画面へ戻る。
+- **実装メモ（実装済み）**: `src/screens/webConnect/WebConnectGate.tsx`＋`QrCameraScanner.tsx`（カメラQR読取。`getUserMedia`+`jsQR`。RNには`<video>/<canvas>`要素が無いため`View`のrefから実DOMノードを取得し要素を直接生成する。`web/src/components/QrScanner.tsx`と同じ方式を移植）。コード貼り付けは`src/services/pairing.ts`の`extractPairingToken`/`signInWithPairingToken`（Worker `/verifyPairingToken` を未認証で呼び`signInWithCustomToken`）。Googleサインインは`src/services/auth/webOAuth.ts`の`signInWithGoogleWeb`（`signInWithPopup`。ポップアップ用リゾルバ`browserPopupRedirectResolver`を明示指定）。ゲスト利用は`getAuthProvider().signIn()`（匿名サインイン）。`AppProviders`（`SafeAreaProvider`）配下で描画する必要がある（`SafeAreaView`使用のため。実機確認で発見）。
 
 ---
 

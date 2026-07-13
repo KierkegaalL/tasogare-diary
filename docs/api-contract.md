@@ -243,7 +243,7 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 { "customToken": "<Firebase custom token>", "uid": "…" }
 ```
 - エラー: 失効/使用済/不正は `failed-precondition`（Web は再取得を促す、[screen.md](screen.md) 4.2）。
-- Web は `signInWithCustomToken(customToken)` でサインイン。**実装済み**（Web 側 `web/src/lib/pairing.ts`。`web/src/app/pair`＝QR ディープリンク着地、`web/src/app/connect`＝カメラでの QR ライブ読取＋コード貼り付け導線）。
+- 呼び出し側は `signInWithCustomToken(customToken)` でサインイン。**実装済み**（Web 側 `web/src/lib/pairing.ts`。`web/src/app/pair`＝QR ディープリンク着地、`web/src/app/connect`＝カメラでの QR ライブ読取＋コード貼り付け導線）。**モバイルアプリのWeb版（Expo Web でこのアプリ自体をブラウザ表示した場合）の連携ゲートからも同エンドポイントを呼ぶ**（`src/services/pairing.ts` の `extractPairingToken`/`signInWithPairingToken`。Webとモバイルで同じ日記を見られるようにするためのユーザー指摘により追加。`src/screens/webConnect/WebConnectGate.tsx`）。
 
 ---
 

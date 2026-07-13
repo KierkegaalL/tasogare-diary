@@ -20,10 +20,14 @@ describe('localAuthProvider', () => {
     const user = await localAuthProvider.signIn();
     expect(user.uid).toMatch(/^u_/);
     expect(user.provider).toBe('local');
+    // Web版 SettingsScreen の連携/ログアウト出し分けが誤らないよう、常に匿名扱いにする
+    // （reviewer指摘）。
+    expect(user.isAnonymous).toBe(true);
 
     // 同一 uid を復元
     const restored = await localAuthProvider.init();
     expect(restored?.uid).toBe(user.uid);
+    expect(restored?.isAnonymous).toBe(true);
 
     // 再サインインでも uid は変わらない
     const again = await localAuthProvider.signIn();

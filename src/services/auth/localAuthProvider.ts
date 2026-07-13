@@ -12,7 +12,10 @@ const UID_KEY = 'tasogare-auth-uid';
 export const localAuthProvider: AuthProvider = {
   async init() {
     const uid = await AsyncStorage.getItem(UID_KEY);
-    return uid ? { uid, provider: 'local' } : null;
+    // isAnonymous: true — 恒久アカウントへの連携がそもそも存在しないプロバイダのため常に匿名扱い
+    // （Web版 SettingsScreen の WebAccountRow が「スマホと連携する」/「ログアウトする」を正しく
+    // 出し分けられるように。reviewer指摘: 未設定だと連携済みと誤認される）。
+    return uid ? { uid, provider: 'local', isAnonymous: true } : null;
   },
   async signIn() {
     let uid = await AsyncStorage.getItem(UID_KEY);
@@ -20,7 +23,7 @@ export const localAuthProvider: AuthProvider = {
       uid = makeId('u');
       await AsyncStorage.setItem(UID_KEY, uid);
     }
-    const user: AuthUser = { uid, provider: 'local' };
+    const user: AuthUser = { uid, provider: 'local', isAnonymous: true };
     return user;
   },
   async signOut() {

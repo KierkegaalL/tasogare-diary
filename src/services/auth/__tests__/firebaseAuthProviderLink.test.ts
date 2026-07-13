@@ -77,7 +77,7 @@ describe('firebaseAuthProvider.linkWith', () => {
 
     const user = await firebaseAuthProvider.linkWith!('google');
 
-    expect(user).toEqual({ uid: 'anon-1', provider: 'google', displayName: 'ryu' });
+    expect(user).toEqual({ uid: 'anon-1', provider: 'google', displayName: 'ryu', isAnonymous: false });
     // 現在ユーザーと組み立てた資格情報で linkWithCredential が呼ばれる。
     expect(mockLinkWithCredential).toHaveBeenCalledWith(
       currentUser,
