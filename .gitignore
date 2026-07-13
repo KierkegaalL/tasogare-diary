@@ -25,6 +25,11 @@ npm-debug.*
 # Firebase CLI（deploy キャッシュ）
 .firebase/
 
+# Firebase ネイティブ設定ファイル（@react-native-firebase 用。公開可能だが環境ごとに別ファイルの
+# ためコミットしない。docs/migration-react-native-firebase.md 第5章）
+GoogleService-Info.plist
+google-services.json
+
 # OS
 .DS_Store
 *.pem

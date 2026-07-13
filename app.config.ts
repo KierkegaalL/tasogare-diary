@@ -16,6 +16,20 @@ const appleSignInEnabled =
   process.env.EXPO_PUBLIC_APPLE_SIGNIN_ENABLED === '1' ||
   process.env.EXPO_PUBLIC_APPLE_SIGNIN_ENABLED === 'true';
 
+// ネイティブ Firebase（@react-native-firebase）への移行フラグ。'1'/'true' の開発ビルドでのみ
+// config plugin と googleServicesFile を有効化する（Expo Go / Web は現行の Firebase JS SDK 経路の
+// まま。ネイティブモジュールを引き込まない）。migration-react-native-firebase.md 第3章・第5章。
+// 未設定（既定）ではプラグインを含めないため、ネイティブ設定ファイルが無くても prebuild は通る。
+const useNativeFirebase =
+  process.env.EXPO_PUBLIC_USE_NATIVE_FIREBASE === '1' ||
+  process.env.EXPO_PUBLIC_USE_NATIVE_FIREBASE === 'true';
+
+// @react-native-firebase が要求するネイティブ設定ファイル（Firebase Console → プロジェクト設定 →
+// iOS/Android アプリを追加 で取得）。公開可能な値だが環境ごと（dev/staging/prod）に別ファイルのため
+// リポジトリにはコミットしない（.gitignore 済み）。配置パスは環境変数で上書き可能（既定はルート直下）。
+const googleServicesPlist = process.env.EXPO_PUBLIC_GOOGLE_SERVICES_PLIST ?? './GoogleService-Info.plist';
+const googleServicesJson = process.env.EXPO_PUBLIC_GOOGLE_SERVICES_JSON ?? './google-services.json';
+
 // expo-apple-authentication は plugins 配列から外しても、パッケージが node_modules にインストールされて
 // いる限り autolinking（@expo/prebuild-config の versionedExpoSDKPackages。ユーザーの plugins 配列の
 // 解決より後段で適用される内部実装）経由で entitlement com.apple.developer.applesignin が注入され続ける
@@ -76,9 +90,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // Apple サインイン（匿名→恒久アカウント昇格）に必要。開発ビルド／配布時のみ有効。
       // 有料 Apple Developer Program 加入までは既定で無効（上記 appleSignInEnabled 参照）。
       ...(appleSignInEnabled ? { usesAppleSignIn: true } : {}),
+      // ネイティブ Firebase 有効時のみ GoogleService-Info.plist を prebuild で ios/ に配置する。
+      ...(useNativeFirebase ? { googleServicesFile: googleServicesPlist } : {}),
     },
     android: {
       package: 'app.tasogarediary',
+      // ネイティブ Firebase 有効時のみ google-services.json を prebuild で android/ に配置する。
+      ...(useNativeFirebase ? { googleServicesFile: googleServicesJson } : {}),
       adaptiveIcon: {
         backgroundColor: '#EFE7EE',
         foregroundImage: './assets/android-icon-foreground.png',
@@ -96,6 +114,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // 無料の Personal Team では provisioning に失敗するため、有効時のみ含める。
       ...(appleSignInEnabled ? ['expo-apple-authentication'] : []),
       googleSignInPlugin,
+      // ネイティブ Firebase（@react-native-firebase）の config plugin。app（+ auth）を有効時のみ含める
+      // （firestore パッケージは package.json には追加済みだが config plugin を持たないため plugins には
+      // 現れない。migration-react-native-firebase.md 第6章の影響ファイル表と一致）。フラグ未設定の
+      // Expo Go 既定バンドルには含めない。
+      // なお本プロジェクトは既に expo-build-properties の useFrameworks:'static' を指定しており、
+      // RNFirebase を静的フレームワークと併用する際は追加の Podfile 設定（$RNFirebaseAsStaticFramework 等）
+      // が要る場合がある。実機の開発ビルドで pod install が通ることを最優先で確認する
+      // （migration-react-native-firebase.md 第9章の先読み事項）。
+      ...(useNativeFirebase ? ['@react-native-firebase/app', '@react-native-firebase/auth'] : []),
       // iOS の pod install で「AppCheckCore が GoogleUtilities/RecaptchaInterop に依存するが
       // モジュールを定義していない」エラーになる（@react-native-google-signin 由来）。
       // use_frameworks! :linkage => :static を Podfile に追加すると解消する
