@@ -5,7 +5,10 @@ import type { Env } from './env';
 import { handleDeleteAccount } from './account';
 import { handleGenerateInsight } from './insight';
 import { handleScheduled } from './cron';
-import { getEntry } from './firestore';
+import { getEntry, queryEntriesByDateRange } from './firestore';
+import type { EntrySummary } from './firestore';
+import { aggregate } from './insight';
+import { DAY_MS, toDateString } from './dateUtils';
 import { handleCreatePairingToken, handleVerifyPairingToken } from './pairing';
 import {
   PROMPT_VERSION,
@@ -222,6 +225,43 @@ export async function handleAdjustDiary(llm: LlmProvider, data: Record<string, u
 // ==========================================================================
 // 3.4 chat — AI対話
 // ==========================================================================
+
+// 関連する過去エントリの「要約」補完（api-contract.md 3.4 備考・第10章）。
+// 日記本文そのものは送らず、insight.ts と同じ集計値（気分割合・頻出語）のみを渡す
+// （最小送信の原則、第8章）。過去何日をどう見るかは要件未確定のため、ここで既定値を決め打つ。
+const CHAT_TREND_WINDOW_DAYS = 14; // 直近2週間（当日を含まない）。
+const CHAT_TREND_MIN_ENTRIES = 3; // これ未満は傾向として提示しない（データが乏しく偏りが大きいため）。
+const CHAT_TREND_TOP_WORDS = 5; // system プロンプトに含める語数の上限（トークン節約。集計自体はaggregateの上限=10のまま）。
+
+const MOOD_LABEL_JA: Record<MoodLevel, string> = { calm: '穏やか', tender: 'ゆらぎ', heavy: '重い' };
+
+function buildPastTrendNote(entries: EntrySummary[]): string | null {
+  if (entries.length < CHAT_TREND_MIN_ENTRIES) return null;
+  const { moodDistribution, topWords } = aggregate(entries);
+
+  // 全件 mood:null（気分をスキップした日ばかり）だと moodDistribution は
+  // { calm: 0, tender: 0, heavy: 0 }（合計0%）になる。本来100%になるべき割合が
+  // 合計0%で出てくるのは不自然なため、気分データが1件も無い場合は moodPart 自体を省略する。
+  // toPercentDistribution（insight.ts）は「1件でもあれば必ず合計100、無ければ全0」という性質を
+  // 持つため、entries を再走査せず合計値だけで判定できる。
+  const hasMoodData = moodDistribution.calm + moodDistribution.tender + moodDistribution.heavy > 0;
+  const moodPart = hasMoodData
+    ? (['calm', 'tender', 'heavy'] as const).map((m) => `${MOOD_LABEL_JA[m]}${moodDistribution[m]}%`).join('／')
+    : null;
+  const wordsPart = topWords
+    .slice(0, CHAT_TREND_TOP_WORDS)
+    .map((w) => w.word)
+    .join('、');
+
+  // どちらの材料も無ければ、傾向ノート自体を付与しない。
+  if (!moodPart && !wordsPart) return null;
+
+  const header = `直近${CHAT_TREND_WINDOW_DAYS}日間（${entries.length}件）の傾向: `;
+  const moodSentence = moodPart ? `${moodPart}。` : '';
+  const wordsSentence = wordsPart ? `よく出た言葉: ${wordsPart}。` : '';
+  return `${header}${moodSentence}${wordsSentence}`;
+}
+
 // テストのため export（insight.ts の handleGenerateInsight と同様の方針）。
 export async function handleChat(env: Env, llm: LlmProvider, uid: string, data: Record<string, unknown>) {
   const message = requireString(data.message, 'message');
@@ -232,8 +272,7 @@ export async function handleChat(env: Env, llm: LlmProvider, uid: string, data: 
   // クライアント履歴（直近 N 往復）だけに頼ると、対話が長くなり履歴が切り詰められた際に
   // この日の感情・本文という土台が失われるため、entryId から都度サーバ側で補う。
   // entryId 不正・エントリ削除済み等（getEntry が null）は文脈補完なしにフォールバックする
-  // （必須情報ではないため、取得失敗で対話自体を止めない）。過去の他エントリの要約は含めない
-  // （最小送信の原則、第8章）。
+  // （必須情報ではないため、取得失敗で対話自体を止めない）。
   const entryId = typeof data.entryId === 'string' ? data.entryId : undefined;
   const entry = entryId
     ? await getEntry(env, uid, entryId).catch((err: unknown) => {
@@ -241,9 +280,30 @@ export async function handleChat(env: Env, llm: LlmProvider, uid: string, data: 
         return null;
       })
     : null;
-  const system = entry
+  let system = entry
     ? `${SYSTEM_CHAT}\n\nこの日の記録: 感情=${entry.mood ?? '不明'}／本文「${entry.bodyText}」`
     : SYSTEM_CHAT;
+
+  // 過去の傾向は、当該エントリの日付を起点に直近N日（当日は含まない）の集計値のみを付与する。
+  // entry が無い（entryId未指定・不正・取得失敗）場合は基準日が無いため付与しない。
+  if (entry) {
+    const entryDateMs = Date.parse(`${entry.date}T00:00:00Z`);
+    if (!Number.isNaN(entryDateMs)) {
+      const rangeEndMs = entryDateMs - DAY_MS;
+      const rangeStartMs = rangeEndMs - (CHAT_TREND_WINDOW_DAYS - 1) * DAY_MS;
+      const pastEntries = await queryEntriesByDateRange(
+        env,
+        uid,
+        toDateString(rangeStartMs),
+        toDateString(rangeEndMs),
+      ).catch((err: unknown) => {
+        console.warn('queryEntriesByDateRange failed for chat trend, skipping', (err as Error)?.name);
+        return [] as EntrySummary[];
+      });
+      const trendNote = buildPastTrendNote(pastEntries);
+      if (trendNote) system += `\n\n${trendNote}`;
+    }
+  }
 
   const reply = await llm.callText({
     purpose: 'interactive',
