@@ -29,16 +29,19 @@ async function getIdToken(): Promise<string> {
 export async function callClaudeWorker<Req, Res>(
   path: string,
   data: Req,
-  options: { requireAuth?: boolean } = {},
+  options: { requireAuth?: boolean; idToken?: string } = {},
 ): Promise<Res> {
-  const { requireAuth = true } = options;
+  const { requireAuth = true, idToken } = options;
   if (!claudeWorkerBaseUrl) {
     throw new ClaudeWorkerError('internal', 'Claude Worker の URL が未設定です。');
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (requireAuth) {
-    headers.Authorization = `Bearer ${await getIdToken()}`;
+    // idToken が明示指定された場合はそれを使う。ネイティブ移行ブリッジ（第4章）は「JS SDK 側の
+    // ID トークン」を送る必要があり、getAuthProvider().getIdToken() 経由だと移行中のネイティブ
+    // プロバイダ自身を呼び戻して再帰してしまうため、呼び出し側が明示的に渡す。
+    headers.Authorization = `Bearer ${idToken ?? (await getIdToken())}`;
   }
 
   let response: Response;
