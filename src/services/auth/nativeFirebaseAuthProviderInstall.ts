@@ -26,15 +26,30 @@ function toNativeUser(user: FirebaseAuthTypes.User): NativeFirebaseUser {
   return { uid: user.uid, isAnonymous: user.isAnonymous, displayName: user.displayName };
 }
 
+// @react-native-firebase/auth の型定義（dist/typescript/lib/types/namespaced.d.ts）は
+// auth.OAuthProvider インスタンスの credential() を位置引数 (token, secret?) と宣言しているが、
+// 実装（lib/providers/OAuthProvider.ts）は credential(params: OAuthCredentialOptions) というオブジェクト
+// 引数を要求する（firebaseAuthProvider.ts の JS SDK 版と同じ形）。型定義側が実装と食い違っており
+// （誤って位置引数で呼ぶと idToken/rawNonce が undefined になり資格情報が空になる。reviewer指摘で発覚）、
+// このメソッドだけ正しいシグネチャでキャストして呼ぶ。
+interface OAuthProviderCredentialMethod {
+  credential(params: {
+    idToken?: string;
+    accessToken?: string;
+    rawNonce?: string;
+  }): FirebaseAuthTypes.AuthCredential;
+}
+
 // プロバイダ非依存の資格情報を @react-native-firebase/auth の AuthCredential に組み立てる
 // （firebaseAuthProvider.ts の buildFirebaseCredential と同じ方針。ネイティブ依存をここに閉じ込める）。
 function buildNativeCredential(input: OAuthCredentialInput): FirebaseAuthTypes.AuthCredential {
   if (input.kind === 'google') {
     return auth.GoogleAuthProvider.credential(input.idToken, input.accessToken);
   }
-  // Apple: @react-native-firebase/auth の名前空間型は modular SDK と異なり credential(token, secret) の
-  // 位置引数形式（firebase/auth の { idToken, rawNonce } オブジェクト形式とは違う）。
-  return new auth.OAuthProvider('apple.com').credential(input.idToken, input.rawNonce);
+  const appleProvider = new auth.OAuthProvider(
+    'apple.com',
+  ) as unknown as OAuthProviderCredentialMethod;
+  return appleProvider.credential({ idToken: input.idToken, rawNonce: input.rawNonce });
 }
 
 // @react-native-firebase/auth を NativeAuthBinding へ束ねる。

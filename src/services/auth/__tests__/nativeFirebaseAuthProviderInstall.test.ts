@@ -74,6 +74,15 @@ const fakeGoogleSource = (): OAuthCredentialSource => ({
   getCredential: async () => ({ kind: 'google', idToken: 'id-token', accessToken: 'access-token' }),
 });
 
+const fakeAppleSource = (): OAuthCredentialSource => ({
+  isAvailable: () => true,
+  getCredential: async () => ({
+    kind: 'apple',
+    idToken: 'apple-id-token',
+    rawNonce: 'apple-raw-nonce',
+  }),
+});
+
 afterEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
@@ -159,6 +168,33 @@ describe('nativeFirebaseAuthProviderInstall（実モジュール束ね）', () =
     expect(user).toEqual({
       uid: 'anon-1',
       provider: 'google',
+      displayName: undefined,
+      isAnonymous: false,
+    });
+  });
+
+  it('linkWith(apple): OAuthProvider(apple.com).credential へオブジェクト引数 {idToken, rawNonce} で渡す', async () => {
+    // reviewer指摘の回帰テスト: @react-native-firebase/auth の型定義は位置引数 (token, secret) を
+    // 宣言しているが、実装はオブジェクト引数を要求する。誤って位置引数で呼ぶと idToken/rawNonce が
+    // undefined になり資格情報が空になる（buildNativeCredential の型キャストで対処済み）。
+    setCredentialSource(fakeAppleSource());
+    const linkWithCredential = jest.fn(async () => ({
+      user: { uid: 'anon-1', isAnonymous: false, displayName: null },
+    }));
+    authApi.currentUser = { isAnonymous: true, getIdToken: jest.fn(), linkWithCredential };
+
+    const user = await nativeFirebaseAuthProvider.linkWith!('apple');
+
+    expect(linkWithCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'apple.com',
+        idToken: 'apple-id-token',
+        rawNonce: 'apple-raw-nonce',
+      }),
+    );
+    expect(user).toEqual({
+      uid: 'anon-1',
+      provider: 'apple',
       displayName: undefined,
       isAnonymous: false,
     });
