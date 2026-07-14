@@ -245,12 +245,17 @@ function AccountLinkSection() {
   const [busy, setBusy] = useState<AccountLinkKind | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // busy(state) は再レンダー後にしか更新されないため、同一tick内の連打を弾けない
+  // （WebAccountRow と同様の対処。reviewer指摘）。ref で同期的にガードする。
+  const busyRef = useRef(false);
 
   // 恒久化はまだ匿名のときだけ。既に Apple/Google 昇格済み、または導線が使えない環境では出さない。
   const kinds = useLinkableAccountKinds();
   if (kinds.length === 0) return null;
 
   const onLink = async (kind: AccountLinkKind) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(kind);
     setError(null);
     setMessage(null);
@@ -262,6 +267,7 @@ function AccountLinkSection() {
       if (err instanceof AuthLinkError && err.code === 'cancelled') return;
       setError(err instanceof Error ? err.message : '連携に失敗しました。');
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   };

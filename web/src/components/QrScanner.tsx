@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import jsQR from 'jsqr';
+import { runQrVideoScan } from '@shared/qrScan';
 
 interface QrScannerProps {
   onDecode: (text: string) => void;
@@ -9,78 +9,20 @@ interface QrScannerProps {
 }
 
 // カメラで QR をライブ読取する（screen.md 4.2 の後続対応）。
-// getUserMedia → video フレームを非表示 canvas に描画 → jsQR でデコード、を rAF ループで繰り返す。
+// getUserMedia → video フレームを非表示 canvas に描画 → jsQR でデコード、というループ本体は
+// モバイル（Expo Web限定・src/screens/webConnect/QrCameraScanner.tsx）と共通のため
+// shared/qrScan.ts に集約している（architecture.md 第6章）。ここでは JSX で用意した
+// video/canvas 要素を渡すだけでよい。
 export function QrScanner({ onDecode, onClose }: QrScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const frameRef = useRef<number | null>(null);
-  const decodedRef = useRef(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function start() {
-      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-        setError('このブラウザはカメラ読取に対応していません。コードを貼り付けてください。');
-        return;
-      }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        await video.play();
-        if (cancelled) return;
-        frameRef.current = requestAnimationFrame(scanFrame);
-      } catch (err) {
-        if (cancelled) return;
-        setError(
-          err instanceof Error && err.name === 'NotAllowedError'
-            ? 'カメラへのアクセスが許可されませんでした。コードを貼り付けてください。'
-            : 'カメラを起動できませんでした。コードを貼り付けてください。',
-        );
-      }
-    }
-
-    function scanFrame() {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas || decodedRef.current) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const result = jsQR(frame.data, frame.width, frame.height);
-          if (result?.data) {
-            decodedRef.current = true;
-            onDecode(result.data);
-            return;
-          }
-        }
-      }
-      frameRef.current = requestAnimationFrame(scanFrame);
-    }
-
-    void start();
-
-    return () => {
-      cancelled = true;
-      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    return runQrVideoScan(video, canvas, onDecode, setError);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
