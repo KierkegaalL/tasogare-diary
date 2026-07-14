@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import jsQR from 'jsqr';
 
+import { runQrVideoScan } from '../../../shared/qrScan';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 interface QrCameraScannerProps {
@@ -10,10 +10,11 @@ interface QrCameraScannerProps {
 }
 
 // カメラで QR をライブ読取する（Web版連携画面専用。Platform.OS === 'web' でのみ描画される想定）。
-// web/src/components/QrScanner.tsx と同じ方式（getUserMedia → 非表示 canvas に描画 → jsQR で
-// デコード、rAF ループ）だが、React Native には <video>/<canvas> が無いため、View の ref から
+// getUserMedia → 非表示 canvas に描画 → jsQR でデコード、という rAF ループ本体は
+// web/src/components/QrScanner.tsx と共通のため shared/qrScan.ts に集約している
+// （architecture.md 第6章）。React Native には <video>/<canvas> が無いため、View の ref から
 // 実体の DOM ノードを取得し、video/canvas 要素を直接生成・追加する（RN Web の View は実 DOM 要素へ
-// forwardRef するため可能）。
+// forwardRef するため可能）。それ以外のカメラ起動・デコードループはここでは持たない。
 export function QrCameraScanner({ onDecode, onClose }: QrCameraScannerProps) {
   const mountRef = useRef<View>(null);
   const [error, setError] = useState('');
@@ -30,11 +31,6 @@ export function QrCameraScanner({ onDecode, onClose }: QrCameraScannerProps) {
     const container = mountRef.current as unknown as HTMLElement | null;
     if (!container) return;
 
-    let cancelled = false;
-    let stream: MediaStream | null = null;
-    let frameHandle: number | null = null;
-    let decoded = false;
-
     const video = document.createElement('video');
     video.muted = true;
     video.setAttribute('playsinline', 'true');
@@ -49,60 +45,10 @@ export function QrCameraScanner({ onDecode, onClose }: QrCameraScannerProps) {
     container.appendChild(video);
     container.appendChild(canvas);
 
-    function scanFrame() {
-      if (decoded) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const result = jsQR(frame.data, frame.width, frame.height);
-          if (result?.data) {
-            decoded = true;
-            onDecodeRef.current(result.data);
-            return;
-          }
-        }
-      }
-      frameHandle = requestAnimationFrame(scanFrame);
-    }
-
-    async function start() {
-      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-        setError('このブラウザはカメラ読取に対応していません。コードを貼り付けてください。');
-        return;
-      }
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        video.srcObject = stream;
-        await video.play();
-        if (cancelled) return;
-        frameHandle = requestAnimationFrame(scanFrame);
-      } catch (err) {
-        if (cancelled) return;
-        setError(
-          err instanceof Error && err.name === 'NotAllowedError'
-            ? 'カメラへのアクセスが許可されませんでした。コードを貼り付けてください。'
-            : 'カメラを起動できませんでした。コードを貼り付けてください。',
-        );
-      }
-    }
-
-    void start();
+    const stop = runQrVideoScan(video, canvas, (text) => onDecodeRef.current(text), setError);
 
     return () => {
-      cancelled = true;
-      if (frameHandle !== null) cancelAnimationFrame(frameHandle);
-      stream?.getTracks().forEach((t) => t.stop());
+      stop();
       container.removeChild(video);
       container.removeChild(canvas);
     };

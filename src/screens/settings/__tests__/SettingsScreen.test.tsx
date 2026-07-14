@@ -469,6 +469,29 @@ describe('SettingsScreen', () => {
         root.unmount();
       });
     });
+
+    it('連携ボタンを連打しても linkAccount は1回しか呼ばれない（busyガード）', async () => {
+      mockUseLinkableAccountKinds.mockReturnValue(['apple']);
+      mockLinkAccount.mockReturnValue(new Promise(() => {}));
+      let root!: ReturnType<typeof create>;
+      await act(async () => {
+        root = create(<SettingsScreen />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(0);
+      });
+      await flush();
+
+      act(() => {
+        const onPress = findPressableByLabel(root, 'Apple と連携').props.onPress;
+        onPress();
+        onPress();
+      });
+      expect(mockLinkAccount).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        root.unmount();
+      });
+    });
   });
 
   describe('アカウント削除（data.md 第7章）', () => {
