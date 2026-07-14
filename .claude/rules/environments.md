@@ -76,6 +76,15 @@
   - フラグ未設定（既定＝Expo Go）では bootstrap は何もせず `canLinkAccount()` は false のまま＝導線非表示。**Expo Go では本フラグを設定しないこと**（ネイティブモジュールを評価して起動が壊れるため）。Firebase Console 側で Apple/Google プロバイダの有効化（Apple は Apple Developer の「Sign in with Apple」構成）が別途必要。
   - **Web（Expo Web / ブラウザ）は対象外**——`@react-native-google-signin`／`expo-apple-authentication` は Web 実装を持たないため、`bootstrapNativeCredentialSource()` は `Platform.OS === 'web'` のときフラグの真偽に関わらず何もしない。Web での恒久アカウント化は QRペアリング（モバイル側の QR を Web で読む導線）を使う。この Platform ガードが無いと、Web で本フラグを有効にした際に `RNGoogleSignIn: ... Web support is only available to sponsors` 警告→`PLAY_SERVICES_NOT_AVAILABLE` で失敗する（実機検証で発覚）。
 
+## ネイティブ Firebase 移行設定（Phase進行中・`@react-native-firebase`）
+
+Firestore のオフライン永続キューを得るため、認証・Firestore アクセスを Firebase JS SDK からネイティブ SDK（`@react-native-firebase/app` / `/auth` / `/firestore`）へ移行中（設計・手順の正は [docs/migration-react-native-firebase.md](../../docs/migration-react-native-firebase.md)）。既存の「ネイティブ資格情報取得」と同じく **フラグで開発ビルドのみ有効化し、Expo Go / Web は現行の JS SDK 経路のまま**にする。
+
+- **有効化フラグ**: `.env` に `EXPO_PUBLIC_USE_NATIVE_FIREBASE=1`（または `true`）。`app.config.ts` が `@react-native-firebase/app`（+ `auth`）の config plugin と下記 `googleServicesFile` を有効時のみ含める（`firestore` は config plugin を持たない）。**未設定（既定）ではプラグインを含めない**ため、ネイティブ設定ファイルが無くても prebuild は通り、現行動作に影響しない。**Expo Go では設定しないこと**。
+- **ネイティブ設定ファイル（ユーザー側で取得・配置）**: iOS は `GoogleService-Info.plist`、Android は `google-services.json`（Firebase Console → プロジェクト設定 → iOS/Android アプリを追加 で取得。公開可能だが**環境ごとに別ファイルのため `.gitignore` 済み・コミットしない**）。既定の参照パスはリポジトリルート直下（`./GoogleService-Info.plist` / `./google-services.json`）で、`EXPO_PUBLIC_GOOGLE_SERVICES_PLIST` / `EXPO_PUBLIC_GOOGLE_SERVICES_JSON` で上書きできる（環境別に `APP_ENV` で切り替える運用にも対応可能。切り替え方式の最終決定は移行計画書第9章の未決事項）。
+- **`useFrameworks: 'static'` との併用**: 本プロジェクトは既に `expo-build-properties` で iOS の静的フレームワークを指定済み。`@react-native-firebase` は静的フレームワーク併用時に追加の Podfile 設定（`$RNFirebaseAsStaticFramework` 等）を要する場合があるため、**開発ビルドで `pod install` が通ることを最優先で確認する**（移行計画書第9章）。
+- **実機検証が必須**: ネイティブモジュールの動作・オフライン永続化（機内モードでの書込→復帰後同期）・既存 uid の継続（移行ブリッジ）は、この環境では検証できず**ユーザー側の開発ビルド/実機で確認する**（同第8章）。
+
 ## Web ダッシュボード クライアント設定（Phase4・`web/`）
 
 Web ダッシュボード（`web/`・Next.js 静的エクスポート）は**モバイルと同一 Firebase プロジェクト**を参照する（同じ Firestore を読む）。設定値は `NEXT_PUBLIC_*` から読み込む（[web/.env.example](../../web/.env.example)、`web/src/lib/firebase.ts`）。**公開可能なクライアント値のみ**で、シークレットは含めない。
