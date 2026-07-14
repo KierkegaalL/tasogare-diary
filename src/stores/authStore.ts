@@ -52,10 +52,20 @@ export const useAuthStore = create<AuthState>((set) => ({
       // ネイティブはログイン不要のため自動で匿名IDを発行する。
       const user = await provider.signIn();
       set({ user, status: 'authenticated' });
-    } catch {
+    } catch (err) {
       // フォールバック: 設定プロバイダ（Firebase 匿名認証等）が失敗（例: 初回起動オフライン、
       // signInAnonymously はネットワーク必須）した場合、ローカル匿名IDで最低限の動作を確保する。
       // TODO(Phase2): オンライン復帰時に local uid → Firebase uid の突合/移行を実装する。
+      // 失敗理由（機微情報は含まない name/message のみ）をログする。ここが無言だと、Firebase側の
+      // 設定不備（ネイティブ設定ファイル未組み込み等）でも常に local へ静かにフォールバックしてしまい、
+      // 「実は本来のFirebase認証が一度も成功していない」ことに気づけない（実機検証で発覚した実例:
+      // GoogleService-Info.plistがXcodeプロジェクトに未登録のまま "No Firebase App '[DEFAULT]'..." で
+      // provider.init/signInが失敗し続けていた）。
+      console.warn(
+        'authStore.initialize: provider.init/signIn failed, falling back to local auth',
+        (err as Error)?.name,
+        (err as Error)?.message,
+      );
       try {
         const restored = await localAuthProvider.init();
         if (restored) {
