@@ -157,7 +157,9 @@ export function createNativeFirebaseAuthProvider(deps: NativeFirebaseAuthDeps): 
       }
       const token = await native.getIdToken();
       if (!token) {
-        throw new Error('ネイティブ Firebase セッションがありません（ID トークンを取得できません）。');
+        throw new Error(
+          'ネイティブ Firebase セッションがありません（ID トークンを取得できません）。',
+        );
       }
       return token;
     },
@@ -167,7 +169,10 @@ export function createNativeFirebaseAuthProvider(deps: NativeFirebaseAuthDeps): 
       // 動作中）ため、リンク昇格も JS 側（firebaseAuthProvider.linkWith）へ委譲する。
       if (mode === 'js-fallback') {
         if (!jsProvider.linkWith) {
-          throw new AuthLinkError('unknown', 'この起動ではアカウント連携を利用できません。再度お試しください。');
+          throw new AuthLinkError(
+            'unknown',
+            'この起動ではアカウント連携を利用できません。再度お試しください。',
+          );
         }
         return jsProvider.linkWith(kind);
       }

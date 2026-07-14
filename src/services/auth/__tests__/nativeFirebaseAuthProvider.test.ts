@@ -40,9 +40,13 @@ function makeDeps(over: Partial<NativeFirebaseAuthDeps> = {}): {
     getIdToken: jest.fn(async () => 'native-id-token'),
     signOut: jest.fn(async () => undefined),
     getCurrentUser: jest.fn(() => nativeUser({ isAnonymous: true })),
-    linkWithCredential: jest.fn(async (_input: OAuthCredentialInput) => nativeUser({ isAnonymous: false })),
+    linkWithCredential: jest.fn(async (_input: OAuthCredentialInput) =>
+      nativeUser({ isAnonymous: false }),
+    ),
   };
-  const jsProvider: jest.Mocked<Pick<AuthProvider, 'init' | 'getIdToken' | 'signOut' | 'linkWith'>> = {
+  const jsProvider: jest.Mocked<
+    Pick<AuthProvider, 'init' | 'getIdToken' | 'signOut' | 'linkWith'>
+  > = {
     init: jest.fn(async () => null),
     getIdToken: jest.fn(async () => 'js-id-token'),
     signOut: jest.fn(async () => undefined),
@@ -53,7 +57,13 @@ function makeDeps(over: Partial<NativeFirebaseAuthDeps> = {}): {
     isMigrated: jest.fn(async () => false),
     markMigrated: jest.fn(async () => undefined),
   };
-  const deps: NativeFirebaseAuthDeps = { native, jsProvider, mintCustomToken, migrationFlag: flag, ...over };
+  const deps: NativeFirebaseAuthDeps = {
+    native,
+    jsProvider,
+    mintCustomToken,
+    migrationFlag: flag,
+    ...over,
+  };
   return { deps, native, jsProvider, mintCustomToken, flag };
 }
 
@@ -61,11 +71,18 @@ describe('nativeFirebaseAuthProvider.init（移行済み）', () => {
   it('移行済みならネイティブ復元のみ・ブリッジをスキップする', async () => {
     const { deps, native, jsProvider, flag } = makeDeps();
     flag.isMigrated.mockResolvedValue(true);
-    native.restore.mockResolvedValue(nativeUser({ uid: 'restored', isAnonymous: false, displayName: 'さくら' }));
+    native.restore.mockResolvedValue(
+      nativeUser({ uid: 'restored', isAnonymous: false, displayName: 'さくら' }),
+    );
 
     const user = await createNativeFirebaseAuthProvider(deps).init();
 
-    expect(user).toEqual({ uid: 'restored', provider: 'anonymous', displayName: 'さくら', isAnonymous: false });
+    expect(user).toEqual({
+      uid: 'restored',
+      provider: 'anonymous',
+      displayName: 'さくら',
+      isAnonymous: false,
+    });
     expect(native.restore).toHaveBeenCalledTimes(1);
     expect(jsProvider.init).not.toHaveBeenCalled();
     expect(native.signInWithCustomToken).not.toHaveBeenCalled();
@@ -100,13 +117,20 @@ describe('nativeFirebaseAuthProvider.init（未移行・既存 JS uid → ブリ
     jsProvider.init.mockResolvedValue(jsUser({ uid: 'existing' }));
     jsProvider.getIdToken.mockResolvedValue('the-js-token');
     mintCustomToken.mockResolvedValue('the-custom-token');
-    native.signInWithCustomToken.mockResolvedValue(nativeUser({ uid: 'existing', isAnonymous: true }));
+    native.signInWithCustomToken.mockResolvedValue(
+      nativeUser({ uid: 'existing', isAnonymous: true }),
+    );
 
     const user = await createNativeFirebaseAuthProvider(deps).init();
 
     expect(mintCustomToken).toHaveBeenCalledWith('the-js-token');
     expect(native.signInWithCustomToken).toHaveBeenCalledWith('the-custom-token');
-    expect(user).toEqual({ uid: 'existing', provider: 'anonymous', displayName: undefined, isAnonymous: true });
+    expect(user).toEqual({
+      uid: 'existing',
+      provider: 'anonymous',
+      displayName: undefined,
+      isAnonymous: true,
+    });
     expect(flag.markMigrated).toHaveBeenCalledTimes(1);
   });
 
@@ -139,7 +163,12 @@ describe('nativeFirebaseAuthProvider.signIn', () => {
 
     const user = await createNativeFirebaseAuthProvider(deps).signIn();
 
-    expect(user).toEqual({ uid: 'fresh', provider: 'anonymous', displayName: undefined, isAnonymous: true });
+    expect(user).toEqual({
+      uid: 'fresh',
+      provider: 'anonymous',
+      displayName: undefined,
+      isAnonymous: true,
+    });
     expect(flag.markMigrated).toHaveBeenCalledTimes(1);
   });
 });
@@ -175,12 +204,23 @@ describe('nativeFirebaseAuthProvider.linkWith（native モード）', () => {
   it('資格情報を取得しネイティブへ linkWithCredential、provider=kind・uid維持で返す', async () => {
     const { deps, native } = makeDeps();
     setCredentialSource(fakeSource());
-    native.linkWithCredential.mockResolvedValue(nativeUser({ uid: 'native-uid', isAnonymous: false }));
+    native.linkWithCredential.mockResolvedValue(
+      nativeUser({ uid: 'native-uid', isAnonymous: false }),
+    );
 
     const user = await createNativeFirebaseAuthProvider(deps).linkWith!('google');
 
-    expect(user).toEqual({ uid: 'native-uid', provider: 'google', displayName: undefined, isAnonymous: false });
-    expect(native.linkWithCredential).toHaveBeenCalledWith({ kind: 'google', idToken: 'id-token', rawNonce: 'nonce' });
+    expect(user).toEqual({
+      uid: 'native-uid',
+      provider: 'google',
+      displayName: undefined,
+      isAnonymous: false,
+    });
+    expect(native.linkWithCredential).toHaveBeenCalledWith({
+      kind: 'google',
+      idToken: 'id-token',
+      rawNonce: 'nonce',
+    });
   });
 
   it('資格情報ソース未対応（unavailable）はそのまま伝播する', async () => {
@@ -225,9 +265,9 @@ describe('nativeFirebaseAuthProvider.linkWith（native モード）', () => {
     setCredentialSource(fakeSource());
     native.linkWithCredential.mockRejectedValue({ code: 'auth/credential-already-in-use' });
 
-    const rejection = await createNativeFirebaseAuthProvider(deps)
-      .linkWith!('google')
-      .catch((e: unknown) => e);
+    const rejection = await createNativeFirebaseAuthProvider(deps).linkWith!('google').catch(
+      (e: unknown) => e,
+    );
 
     expect(rejection).toBeInstanceOf(AuthLinkError);
     expect((rejection as AuthLinkError).code).toBe('credential-already-in-use');
@@ -236,11 +276,13 @@ describe('nativeFirebaseAuthProvider.linkWith（native モード）', () => {
   it('native.linkWithCredential が既に AuthLinkError を投げた場合はそのまま伝播する（二重写像しない）', async () => {
     const { deps, native } = makeDeps();
     setCredentialSource(fakeSource());
-    native.linkWithCredential.mockRejectedValue(new AuthLinkError('already-linked', 'すでにリンク済みです。'));
+    native.linkWithCredential.mockRejectedValue(
+      new AuthLinkError('already-linked', 'すでにリンク済みです。'),
+    );
 
-    const rejection = await createNativeFirebaseAuthProvider(deps)
-      .linkWith!('google')
-      .catch((e: unknown) => e);
+    const rejection = await createNativeFirebaseAuthProvider(deps).linkWith!('google').catch(
+      (e: unknown) => e,
+    );
 
     expect(rejection).toBeInstanceOf(AuthLinkError);
     expect((rejection as AuthLinkError).code).toBe('already-linked');
