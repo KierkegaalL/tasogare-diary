@@ -160,7 +160,7 @@ graph LR
 
 ### 4.1 ダッシュボード（Web）（`dashboardView`）
 - **目的**: 月次中心の俯瞰。分析はここに集約（モバイルに出さない、[basic-design.md](design/basic-design.md) 第2.2節）。
-- **要素**: ブラウザ枠（`.browser-url` `tasogare-diary.app/dashboard`）／サイドバー（`.dash-sidebar`：ホーム/カレンダー/ダッシュボード）／ヘッダー（`.dash-title`「振り返りダッシュボード」＋期間タブ `.period-tabs` 今週/今月/過去3ヶ月）／AIまとめ（`.dash-narrative`「AIによる今月のまとめ」＋`.dash-narrative-text`）／感情推移（`.dash-card`「感情の推移（週ごと）」＋`.mood-chart` 積み上げ＋`.legend`）／よく使う言葉（`.word-rank` 上位N＋件数）／注記（`.dash-note`：モバイル非表示の設計原則）。
+- **要素**: `visual-design.html`のモックは「サイドバー（`.dash-sidebar`：ホーム/カレンダー/ダッシュボード）」を含むが、**実装（`web/`）はサイドバーを持たずヘッダーのみ**（`.dash-title`「振り返りダッシュボード」＋日記の一覧へのリンク＋サインアウト。`web/src/app/dashboard/page.tsx`）。以降はヘッダー＋期間タブ `.period-tabs` 今週/今月/過去3ヶ月／AIまとめ（`.dash-narrative`「AIによる今月のまとめ」＋`.dash-narrative-text`）／感情推移（`.dash-card`「感情の推移（週ごと）」＋`.mood-chart` 積み上げ＋`.legend`）／よく使う言葉（`.word-rank` 上位N＋件数）／注記（`.dash-note`：モバイル非表示の設計原則）。
 - **データ**: `insights`（`monthly` 主、`moodDistribution`/`topWords`/`narrative`）、`wordStats`（[data.md](data.md) 第3.4/3.5節）。生成は Functions（案B）。
 - **状態**: 生成前＝プレースホルダ。データ不足（記録少）＝その旨を表示。読取専用（編集可否 U-09）。
 - **A11y**: グラフに数値/凡例を併記、色のみに依存しない。

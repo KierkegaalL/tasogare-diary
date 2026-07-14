@@ -41,6 +41,17 @@
 | ローカル実行 | `npm --prefix worker run dev` （= `wrangler dev`） |
 | デプロイ | `npm --prefix worker run deploy` （= `wrangler deploy`） |
 
+## web（Web ダッシュボード・別プロジェクト）
+
+`web/` も独立した npm プロジェクト（別 `package.json`／`tsconfig.json`）。ルートの lint/型/テスト対象外なので、変更時は個別にコマンドを実行する。ユニットテストは DOM/ブラウザAPIに依存しない純粋なロジック（`src/lib/period.ts` 等）のみが対象で、QRスキャナ・無限スクロール等は手動確認のまま（[web/README.md](../../web/README.md)）。
+
+| 目的 | コマンド |
+|---|---|
+| 型チェック | `npm --prefix web run typecheck` （= `tsc --noEmit`） |
+| ユニットテスト | `npm --prefix web test` （= `vitest run`） |
+| 開発サーバ（:3000） | `npm --prefix web run dev` |
+| 静的ビルド | `npm --prefix web run build` |
+
 ## hooks による自動実行
 
 `.claude/settings.json` の PostToolUse hook が、ファイル編集後に `.claude/hooks/post-edit-check.sh` を実行する。内容:

@@ -64,9 +64,16 @@ export async function handleVerifyPairingToken(
     throw new ApiError(400, 'failed-precondition', 'ペアリングコードは失効または使用済みです。QRを再取得してください。');
   }
 
-  // 二重消費防止（precondition）。競合時は failed-precondition が投げられる。
+  // mintCustomToken を consume より先に行う。理由: 先に consume すると、直後の mint が
+  // （署名処理やネットワーク等で）失敗した場合にトークンだけ消費済みになってしまい、
+  // クライアントは再試行できず「失効・使用済み」と同じ体験になって切り分けづらい
+  // （reviewer指摘）。mint を先に行えば、mint 失敗時はトークンが未消費のまま残り、
+  // 同じトークンで再試行できる。
+  const customToken = await mintCustomToken(env, pairing.uid);
+
+  // 二重消費防止（precondition）。同時に複数リクエストが来た場合、consume に勝った側だけが
+  // 正常に完了する（競合時は failed-precondition が投げられる）。
   await consumePairing(env, token, pairing.updateTime);
 
-  const customToken = await mintCustomToken(env, pairing.uid);
   return { customToken, uid: pairing.uid };
 }

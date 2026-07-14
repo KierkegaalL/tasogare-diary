@@ -123,6 +123,20 @@ describe('handleChat の入力バリデーション', () => {
       code: 'invalid-argument',
     });
   });
+
+  it('history はリクエスト自体は許可される件数でも、LLMへは直近20件のみ渡す（サーバ側切り詰め・多層防御）', async () => {
+    // MAX_ARRAY_ITEMS(50)以下だが、LLMへの切り詰め上限(20)は超える件数。
+    const history = Array.from({ length: 30 }, (_, i) => ({ role: 'me' as const, text: `msg${i}` }));
+    const llm = llmStub();
+
+    await handleChat(ENV, llm, 'u1', { message: 'm', history });
+
+    const opts = (llm.callText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(opts.history).toHaveLength(20);
+    // 直近20件＝末尾（新しい方）が残る。
+    expect(opts.history[0].text).toBe('msg10');
+    expect(opts.history[19].text).toBe('msg29');
+  });
 });
 
 // 関連する過去エントリの「要約」補完（api-contract.md 3.4 備考・第10章）。

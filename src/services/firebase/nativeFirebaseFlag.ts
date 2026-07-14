@@ -10,8 +10,8 @@ import { Platform } from 'react-native';
 //   - Web（Platform.OS === 'web'）は対象外。@react-native-firebase は Web 実装を持たず、Web での
 //     恒久アカウント化は QRペアリング経由（environments.md）のため、Web では常に false を返す。
 //
-// この判定を getAuthProvider()（src/services/auth/index.ts）と、将来の
-// getEntriesRepository()/getMessagesRepository()（Phase6）で共有し、認証と Firestore アクセスを
+// この判定を getAuthProvider()（src/services/auth/index.ts）と
+// getEntriesRepository()/getMessagesRepository()（Phase6・実装済み）で共有し、認証と Firestore アクセスを
 // 揃ってネイティブ SDK 経路へ切り替える（第2章: Firestore だけの移行では権限拒否になるため）。
 
 // EXPO_PUBLIC_USE_NATIVE_FIREBASE を真偽へ。'1' / 'true'（前後空白・大小無視）を真とする。

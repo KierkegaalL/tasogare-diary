@@ -87,6 +87,16 @@ describe('handleVerifyPairingToken', () => {
     expect(mockConsumePairing).not.toHaveBeenCalled();
   });
 
+  it('mintCustomToken が失敗した場合、トークンは消費されず再試行可能なまま残る', async () => {
+    mockGetPairing.mockResolvedValue({ uid: 'uid-9', expiresAt: future(), consumed: false, updateTime: 'ut-1' });
+    mockMintCustomToken.mockRejectedValue(new Error('signing failed'));
+
+    await expect(handleVerifyPairingToken(ENV, { token: 'tok' })).rejects.toThrow('signing failed');
+
+    // consume が呼ばれていない＝トークンは未消費のまま。同じトークンで再試行できる。
+    expect(mockConsumePairing).not.toHaveBeenCalled();
+  });
+
   it('有効なトークンは消費し、カスタムトークンと uid を返す', async () => {
     mockGetPairing.mockResolvedValue({
       uid: 'uid-9',

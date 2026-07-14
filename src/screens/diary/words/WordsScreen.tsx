@@ -17,7 +17,8 @@ import { colors, fonts, radius, spacing } from '../../../theme';
 
 const SHAPES: PebbleShape[] = ['a', 'b', 'c'];
 
-// ④ ことば（step3 / screen.md 3.4）。Claude 連想語提案（現状モック）→ 選択・自由追加。
+// ④ ことば（step3 / screen.md 3.4）。連想語提案（Worker未設定時はモック、設定時はWorker/Gemini経由。
+// isClaudeWorkerConfigured による自動切替、src/services/diaryApi.ts）→ 選択・自由追加。
 export function WordsScreen() {
   const navigation = useDiaryFlowNavigation();
   const mood = useDraftStore((s) => s.mood);
