@@ -5,7 +5,9 @@ import type {
   NativeFirebaseAuthDeps,
   NativeFirebaseUser,
 } from '../nativeFirebaseAuthProvider';
-import type { AuthProvider, AuthUser } from '../types';
+import type { AuthProvider, AuthUser, OAuthCredentialInput, OAuthCredentialSource } from '../types';
+import { AuthLinkError } from '../types';
+import { setCredentialSource, resetCredentialSource } from '../credentialSource';
 
 // 移行ブリッジ（docs/migration-react-native-firebase.md 第4章）のロジックをネイティブ非依存で検証する。
 // 実 @react-native-firebase/auth・JS SDK・Worker には触れず、注入した fake でパスを網羅する。
@@ -27,7 +29,7 @@ const jsUser = (over: Partial<AuthUser> = {}): AuthUser => ({
 function makeDeps(over: Partial<NativeFirebaseAuthDeps> = {}): {
   deps: NativeFirebaseAuthDeps;
   native: jest.Mocked<NativeAuthBinding>;
-  jsProvider: jest.Mocked<Pick<AuthProvider, 'init' | 'getIdToken' | 'signOut'>>;
+  jsProvider: jest.Mocked<Pick<AuthProvider, 'init' | 'getIdToken' | 'signOut' | 'linkWith'>>;
   mintCustomToken: jest.MockedFunction<NativeFirebaseAuthDeps['mintCustomToken']>;
   flag: jest.Mocked<MigrationFlagStore>;
 } {
@@ -37,18 +39,31 @@ function makeDeps(over: Partial<NativeFirebaseAuthDeps> = {}): {
     signInWithCustomToken: jest.fn(async (_customToken: string) => nativeUser()),
     getIdToken: jest.fn(async () => 'native-id-token'),
     signOut: jest.fn(async () => undefined),
+    getCurrentUser: jest.fn(() => nativeUser({ isAnonymous: true })),
+    linkWithCredential: jest.fn(async (_input: OAuthCredentialInput) =>
+      nativeUser({ isAnonymous: false }),
+    ),
   };
-  const jsProvider: jest.Mocked<Pick<AuthProvider, 'init' | 'getIdToken' | 'signOut'>> = {
+  const jsProvider: jest.Mocked<
+    Pick<AuthProvider, 'init' | 'getIdToken' | 'signOut' | 'linkWith'>
+  > = {
     init: jest.fn(async () => null),
     getIdToken: jest.fn(async () => 'js-id-token'),
     signOut: jest.fn(async () => undefined),
+    linkWith: jest.fn(async () => jsUser({ provider: 'google', isAnonymous: false })),
   };
   const mintCustomToken = jest.fn(async (_t: string) => 'custom-token');
   const flag: jest.Mocked<MigrationFlagStore> = {
     isMigrated: jest.fn(async () => false),
     markMigrated: jest.fn(async () => undefined),
   };
-  const deps: NativeFirebaseAuthDeps = { native, jsProvider, mintCustomToken, migrationFlag: flag, ...over };
+  const deps: NativeFirebaseAuthDeps = {
+    native,
+    jsProvider,
+    mintCustomToken,
+    migrationFlag: flag,
+    ...over,
+  };
   return { deps, native, jsProvider, mintCustomToken, flag };
 }
 
@@ -56,11 +71,18 @@ describe('nativeFirebaseAuthProvider.init（移行済み）', () => {
   it('移行済みならネイティブ復元のみ・ブリッジをスキップする', async () => {
     const { deps, native, jsProvider, flag } = makeDeps();
     flag.isMigrated.mockResolvedValue(true);
-    native.restore.mockResolvedValue(nativeUser({ uid: 'restored', isAnonymous: false, displayName: 'さくら' }));
+    native.restore.mockResolvedValue(
+      nativeUser({ uid: 'restored', isAnonymous: false, displayName: 'さくら' }),
+    );
 
     const user = await createNativeFirebaseAuthProvider(deps).init();
 
-    expect(user).toEqual({ uid: 'restored', provider: 'anonymous', displayName: 'さくら', isAnonymous: false });
+    expect(user).toEqual({
+      uid: 'restored',
+      provider: 'anonymous',
+      displayName: 'さくら',
+      isAnonymous: false,
+    });
     expect(native.restore).toHaveBeenCalledTimes(1);
     expect(jsProvider.init).not.toHaveBeenCalled();
     expect(native.signInWithCustomToken).not.toHaveBeenCalled();
@@ -95,13 +117,20 @@ describe('nativeFirebaseAuthProvider.init（未移行・既存 JS uid → ブリ
     jsProvider.init.mockResolvedValue(jsUser({ uid: 'existing' }));
     jsProvider.getIdToken.mockResolvedValue('the-js-token');
     mintCustomToken.mockResolvedValue('the-custom-token');
-    native.signInWithCustomToken.mockResolvedValue(nativeUser({ uid: 'existing', isAnonymous: true }));
+    native.signInWithCustomToken.mockResolvedValue(
+      nativeUser({ uid: 'existing', isAnonymous: true }),
+    );
 
     const user = await createNativeFirebaseAuthProvider(deps).init();
 
     expect(mintCustomToken).toHaveBeenCalledWith('the-js-token');
     expect(native.signInWithCustomToken).toHaveBeenCalledWith('the-custom-token');
-    expect(user).toEqual({ uid: 'existing', provider: 'anonymous', displayName: undefined, isAnonymous: true });
+    expect(user).toEqual({
+      uid: 'existing',
+      provider: 'anonymous',
+      displayName: undefined,
+      isAnonymous: true,
+    });
     expect(flag.markMigrated).toHaveBeenCalledTimes(1);
   });
 
@@ -134,7 +163,12 @@ describe('nativeFirebaseAuthProvider.signIn', () => {
 
     const user = await createNativeFirebaseAuthProvider(deps).signIn();
 
-    expect(user).toEqual({ uid: 'fresh', provider: 'anonymous', displayName: undefined, isAnonymous: true });
+    expect(user).toEqual({
+      uid: 'fresh',
+      provider: 'anonymous',
+      displayName: undefined,
+      isAnonymous: true,
+    });
     expect(flag.markMigrated).toHaveBeenCalledTimes(1);
   });
 });
@@ -156,5 +190,134 @@ describe('nativeFirebaseAuthProvider.getIdToken / signOut（native モード）'
     const { deps, native } = makeDeps();
     await createNativeFirebaseAuthProvider(deps).signOut();
     expect(native.signOut).toHaveBeenCalledTimes(1);
+  });
+});
+
+const fakeSource = (): OAuthCredentialSource => ({
+  isAvailable: () => true,
+  getCredential: async (kind) => ({ kind, idToken: 'id-token', rawNonce: 'nonce' }),
+});
+
+describe('nativeFirebaseAuthProvider.linkWith（native モード）', () => {
+  afterEach(() => resetCredentialSource());
+
+  it('資格情報を取得しネイティブへ linkWithCredential、provider=kind・uid維持で返す', async () => {
+    const { deps, native } = makeDeps();
+    setCredentialSource(fakeSource());
+    native.linkWithCredential.mockResolvedValue(
+      nativeUser({ uid: 'native-uid', isAnonymous: false }),
+    );
+
+    const user = await createNativeFirebaseAuthProvider(deps).linkWith!('google');
+
+    expect(user).toEqual({
+      uid: 'native-uid',
+      provider: 'google',
+      displayName: undefined,
+      isAnonymous: false,
+    });
+    expect(native.linkWithCredential).toHaveBeenCalledWith({
+      kind: 'google',
+      idToken: 'id-token',
+      rawNonce: 'nonce',
+    });
+  });
+
+  it('資格情報ソース未対応（unavailable）はそのまま伝播する', async () => {
+    const { deps, native } = makeDeps();
+    // 既定（unavailable）のまま setCredentialSource しない。
+    await expect(createNativeFirebaseAuthProvider(deps).linkWith!('apple')).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    expect(native.linkWithCredential).not.toHaveBeenCalled();
+  });
+
+  it('セッションが無ければ、ネイティブのサインインUI（credentialSource）を呼ばずに no-anonymous-session', async () => {
+    const { deps, native } = makeDeps();
+    native.getCurrentUser.mockReturnValue(null);
+    const src = fakeSource();
+    const spy = jest.spyOn(src, 'getCredential');
+    setCredentialSource(src);
+
+    await expect(createNativeFirebaseAuthProvider(deps).linkWith!('google')).rejects.toMatchObject({
+      code: 'no-anonymous-session',
+    });
+    expect(spy).not.toHaveBeenCalled();
+    expect(native.linkWithCredential).not.toHaveBeenCalled();
+  });
+
+  it('既に恒久アカウント（非匿名）なら、credentialSource を呼ばずに already-linked', async () => {
+    const { deps, native } = makeDeps();
+    native.getCurrentUser.mockReturnValue(nativeUser({ isAnonymous: false }));
+    const src = fakeSource();
+    const spy = jest.spyOn(src, 'getCredential');
+    setCredentialSource(src);
+
+    await expect(createNativeFirebaseAuthProvider(deps).linkWith!('google')).rejects.toMatchObject({
+      code: 'already-linked',
+    });
+    expect(spy).not.toHaveBeenCalled();
+    expect(native.linkWithCredential).not.toHaveBeenCalled();
+  });
+
+  it('native.linkWithCredential の credential-already-in-use を AuthLinkError へ写像する', async () => {
+    const { deps, native } = makeDeps();
+    setCredentialSource(fakeSource());
+    native.linkWithCredential.mockRejectedValue({ code: 'auth/credential-already-in-use' });
+
+    const rejection = await createNativeFirebaseAuthProvider(deps).linkWith!('google').catch(
+      (e: unknown) => e,
+    );
+
+    expect(rejection).toBeInstanceOf(AuthLinkError);
+    expect((rejection as AuthLinkError).code).toBe('credential-already-in-use');
+  });
+
+  it('native.linkWithCredential が既に AuthLinkError を投げた場合はそのまま伝播する（二重写像しない）', async () => {
+    const { deps, native } = makeDeps();
+    setCredentialSource(fakeSource());
+    native.linkWithCredential.mockRejectedValue(
+      new AuthLinkError('already-linked', 'すでにリンク済みです。'),
+    );
+
+    const rejection = await createNativeFirebaseAuthProvider(deps).linkWith!('google').catch(
+      (e: unknown) => e,
+    );
+
+    expect(rejection).toBeInstanceOf(AuthLinkError);
+    expect((rejection as AuthLinkError).code).toBe('already-linked');
+  });
+});
+
+describe('nativeFirebaseAuthProvider.linkWith（js-fallback モード）', () => {
+  it('ブリッジ失敗中はネイティブへ触れず jsProvider.linkWith へ委譲する', async () => {
+    const { deps, native, jsProvider, mintCustomToken } = makeDeps();
+    jsProvider.init.mockResolvedValue(jsUser({ uid: 'existing' }));
+    mintCustomToken.mockRejectedValue(new Error('worker unreachable'));
+
+    const provider = createNativeFirebaseAuthProvider(deps);
+    await provider.init(); // js-fallback に入る
+
+    const user = await provider.linkWith!('google');
+
+    expect(jsProvider.linkWith).toHaveBeenCalledWith('google');
+    expect(native.linkWithCredential).not.toHaveBeenCalled();
+    expect(user).toEqual(jsUser({ provider: 'google', isAnonymous: false }));
+  });
+
+  it('jsProvider に linkWith が無い場合は unknown エラーを投げる', async () => {
+    const { deps, mintCustomToken } = makeDeps({
+      jsProvider: {
+        init: jest.fn(async () => jsUser({ uid: 'existing' })),
+        getIdToken: jest.fn(async () => 'js-id-token'),
+        signOut: jest.fn(async () => undefined),
+      },
+    });
+    mintCustomToken.mockRejectedValue(new Error('worker unreachable'));
+
+    const provider = createNativeFirebaseAuthProvider(deps);
+    await provider.init(); // js-fallback に入る
+
+    await expect(provider.linkWith!('google')).rejects.toBeInstanceOf(AuthLinkError);
   });
 });

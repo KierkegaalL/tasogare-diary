@@ -70,8 +70,11 @@ export async function installNativeCredentialSource(
         ...(Platform.OS === 'ios' ? { iosClientId: googleIosClientId } : {}),
       });
       googleAvailable = true;
-    } catch {
+    } catch (err) {
       googleAvailable = false;
+      // configure() 失敗の原因（clientID不備等）が silent に握りつぶされ canLinkAccount のデバッグが
+      // 困難だったため、機微情報を含まない範囲（name/message）で診断ログを残す（constraints.md）。
+      console.warn('GoogleSignin.configure failed', (err as Error)?.name, (err as Error)?.message);
     }
   }
 

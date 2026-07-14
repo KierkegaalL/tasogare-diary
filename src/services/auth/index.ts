@@ -30,7 +30,8 @@ export function getAuthProvider(): AuthProvider {
     return install.nativeFirebaseAuthProvider;
   }
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return (require('./firebaseAuthProvider') as typeof import('./firebaseAuthProvider')).firebaseAuthProvider;
+  return (require('./firebaseAuthProvider') as typeof import('./firebaseAuthProvider'))
+    .firebaseAuthProvider;
 }
 
 // 匿名→Apple/Google リンク昇格が今この環境で実行可能か。
