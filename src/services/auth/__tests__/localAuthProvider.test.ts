@@ -39,4 +39,8 @@ describe('localAuthProvider', () => {
     await localAuthProvider.signOut();
     expect(await localAuthProvider.init()).toBeNull();
   });
+
+  it('getIdToken は実 ID トークンを持たないため throw する（偽トークンを返さない）', async () => {
+    await expect(localAuthProvider.getIdToken()).rejects.toThrow();
+  });
 });

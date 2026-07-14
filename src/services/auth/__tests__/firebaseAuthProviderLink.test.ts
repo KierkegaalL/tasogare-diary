@@ -68,6 +68,21 @@ describe('buildFirebaseCredential', () => {
   });
 });
 
+describe('firebaseAuthProvider.getIdToken', () => {
+  it('currentUser があれば getIdToken の結果を返す', async () => {
+    const getIdToken = jest.fn().mockResolvedValue('id-token-xyz');
+    setCurrentUser({ uid: 'u1', getIdToken });
+
+    await expect(firebaseAuthProvider.getIdToken()).resolves.toBe('id-token-xyz');
+    expect(getIdToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('currentUser が無ければ throw する（未サインイン）', async () => {
+    setCurrentUser(null);
+    await expect(firebaseAuthProvider.getIdToken()).rejects.toThrow();
+  });
+});
+
 describe('firebaseAuthProvider.linkWith', () => {
   it('匿名ユーザーを昇格し、provider=kind・uid 維持で返す', async () => {
     const currentUser = { uid: 'anon-1', isAnonymous: true, displayName: null };
