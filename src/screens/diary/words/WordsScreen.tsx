@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useNetInfo } from '@react-native-community/netinfo';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useDiaryFlowNavigation } from '../../../app/navigation/hooks';
 import { useDraftStore } from '../../../stores/draftStore';
+import { useIsOffline } from '../../../hooks/useIsOffline';
 import { useSuggestWords } from '../../../hooks/useSuggestWords';
 import { ScreenShell } from '../../../components/ScreenShell';
 import { StepProgress } from '../../../components/StepProgress';
@@ -30,8 +30,7 @@ export function WordsScreen() {
 
   const [text, setText] = useState('');
 
-  const netInfo = useNetInfo();
-  const isOffline = netInfo.isConnected === false;
+  const isOffline = useIsOffline();
 
   const events = eventWord ? [eventWord] : [];
   const { data, isLoading, isError, refetch, isFetching } = useSuggestWords(

@@ -29,6 +29,27 @@ describe('handleGenerateDiary', () => {
       code: 'invalid-argument',
     });
   });
+
+  it('words が上限件数を超えると invalid-argument（LLMへ任意長の入力を転送しない防御）', async () => {
+    const words = Array.from({ length: 101 }, (_, i) => ({ text: `w${i}`, category: 'assoc' }));
+    await expect(handleGenerateDiary(llmStub(), { words, date: '2026-07-01' })).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+  });
+
+  it('words の1語が上限文字数を超えると invalid-argument', async () => {
+    const words = [{ text: 'x'.repeat(201), category: 'mood' }];
+    await expect(handleGenerateDiary(llmStub(), { words, date: '2026-07-01' })).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+  });
+
+  it('date が上限文字数を超えると invalid-argument', async () => {
+    const words = [{ text: '疲れた', category: 'mood' }];
+    await expect(handleGenerateDiary(llmStub(), { words, date: 'x'.repeat(33) })).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+  });
 });
 
 describe('handleAdjustDiary', () => {
@@ -45,5 +66,11 @@ describe('handleAdjustDiary', () => {
     await expect(handleAdjustDiary(llmStub(), { bodyText: '本文', instruction: 'unknown' })).rejects.toMatchObject({
       code: 'invalid-argument',
     });
+  });
+
+  it('bodyText が上限文字数を超えると invalid-argument（LLMへ任意長の入力を転送しない防御）', async () => {
+    await expect(
+      handleAdjustDiary(llmStub(), { bodyText: 'x'.repeat(4001), instruction: 'positive' }),
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
   });
 });

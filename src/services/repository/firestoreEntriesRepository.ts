@@ -31,7 +31,7 @@ export const firestoreEntriesRepository: EntriesRepository = {
     return onSnapshot(
       q,
       (snap) => onChange(snap.docs.map((d) => fromDoc(d.id, d.data()))),
-      (error) => console.warn('[firestore] entries subscribe error:', error.message),
+      (error) => console.warn('[firestore] entries subscribe error:', error.code),
     );
   },
   async upsert(uid, entry) {

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useNetInfo } from '@react-native-community/netinfo';
 
+import { useIsOffline } from '../../../hooks/useIsOffline';
 import { useDiaryFlowNavigation } from '../../../app/navigation/hooks';
 import { useDraftStore } from '../../../stores/draftStore';
 import { useEntriesStore } from '../../../stores/entriesStore';
@@ -59,9 +59,7 @@ export function PreviewScreen() {
   const addEntry = useEntriesStore((s) => s.addEntry);
   const uid = useAuthStore((s) => s.user?.uid);
 
-  const netInfo = useNetInfo();
-  // 判定中（isConnected===null）も安全側でオフライン扱いにする（reviewer指摘）。
-  const isOffline = netInfo.isConnected !== true;
+  const isOffline = useIsOffline();
 
   const date = todayISO();
   // 生成に渡す全語（気持ち＋できごと＋連想語）。api-contract.md 3.2 の words[]。

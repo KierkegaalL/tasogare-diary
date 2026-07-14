@@ -58,18 +58,63 @@ function errorResponse(err: unknown): Response {
   return json({ error: { code: 'internal', message: '想定外のエラーが発生しました。' } }, 500);
 }
 
-function asStringArray(value: unknown, field: string): string[] {
+// 入力サイズの上限（LLMへ任意長の入力をそのまま転送しないための防御。api-contract.md 第3章の
+// 想定入力＝一言〜数文程度に対して十分な余裕を持たせつつ、トークン濫用・課金増を防ぐ）。
+const MAX_TEXT_LENGTH = 2000; // メッセージ・単語等、通常の自由入力の上限
+const MAX_BODY_TEXT_LENGTH = 4000; // 日記本文（生成・調整対象）の上限
+const MAX_SHORT_TEXT_LENGTH = 200; // mood・moodEnumHint等、短い定型的な値の上限
+const MAX_DATE_LENGTH = 32; // date（YYYY-MM-DD、10文字）に十分な余裕を持たせた上限
+const MAX_ARRAY_ITEMS = 50; // events・selected・history 等の配列要素数上限
+const MAX_WORDS_ITEMS = 100; // words（ことば選択）の要素数上限
+
+function asStringArray(
+  value: unknown,
+  field: string,
+  opts: { maxItems?: number; maxItemLength?: number } = {},
+): string[] {
+  const maxItems = opts.maxItems ?? MAX_ARRAY_ITEMS;
+  const maxItemLength = opts.maxItemLength ?? MAX_TEXT_LENGTH;
   if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
     throw new ApiError(400, 'invalid-argument', `${field} は文字列配列である必要があります。`);
+  }
+  if (value.length > maxItems) {
+    throw new ApiError(400, 'invalid-argument', `${field} は${maxItems}件以内である必要があります。`);
+  }
+  if ((value as string[]).some((v) => v.length > maxItemLength)) {
+    throw new ApiError(400, 'invalid-argument', `${field} の各要素は${maxItemLength}文字以内である必要があります。`);
   }
   return value as string[];
 }
 
-function requireString(value: unknown, field: string): string {
+function requireString(value: unknown, field: string, maxLength = MAX_TEXT_LENGTH): string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new ApiError(400, 'invalid-argument', `${field} は必須です。`);
   }
+  if (value.length > maxLength) {
+    throw new ApiError(400, 'invalid-argument', `${field} は${maxLength}文字以内である必要があります。`);
+  }
   return value;
+}
+
+// 任意（未指定なら undefined を返す）文字列フィールド。型不一致は既存動作を踏襲し無視するが、
+// 文字列として渡された場合の長さ上限は必須フィールドと同様に検証する。
+function optionalString(value: unknown, field: string, maxLength = MAX_SHORT_TEXT_LENGTH): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (value.length > maxLength) {
+    throw new ApiError(400, 'invalid-argument', `${field} は${maxLength}文字以内である必要があります。`);
+  }
+  return value;
+}
+
+// words（generateDiary）・history（chat）のように「オブジェクト配列の text プロパティ」の
+// 長さだけを検証したい場合の共通ヘルパー。text 以外の型不一致は個別ハンドラの責務（ここでは見ない）。
+function assertMaxItemTextLength(items: unknown[], field: string, maxLength: number): void {
+  const tooLong = items.some(
+    (item) => typeof (item as { text?: unknown })?.text === 'string' && (item as { text: string }).text.length > maxLength,
+  );
+  if (tooLong) {
+    throw new ApiError(400, 'invalid-argument', `${field} の各要素は${maxLength}文字以内である必要があります。`);
+  }
 }
 
 // `as const` のリテラル型スキーマを LlmCallOptions.jsonSchema（Record<string, unknown>）へ渡すための
@@ -111,13 +156,13 @@ const SUGGEST_WORDS_SCHEMA = {
 } as const;
 
 async function handleSuggestWords(llm: LlmProvider, data: Record<string, unknown>) {
-  const events = asStringArray(data.events ?? [], 'events');
-  const selected = asStringArray(data.selected ?? [], 'selected');
-  const mood = typeof data.mood === 'string' ? data.mood : undefined;
+  const events = asStringArray(data.events ?? [], 'events', { maxItems: 20, maxItemLength: MAX_SHORT_TEXT_LENGTH });
+  const selected = asStringArray(data.selected ?? [], 'selected', { maxItemLength: MAX_SHORT_TEXT_LENGTH });
+  const mood = optionalString(data.mood, 'mood');
 
   const userText = JSON.stringify({
     mood: mood ?? null,
-    moodEnumHint: typeof data.moodEnumHint === 'string' ? data.moodEnumHint : null,
+    moodEnumHint: optionalString(data.moodEnumHint, 'moodEnumHint') ?? null,
     events,
     selected,
     instruction: '上記をふまえ、日記のきっかけになる連想語を最大7語、重複なく提案してください。',
@@ -154,7 +199,11 @@ export async function handleGenerateDiary(llm: LlmProvider, data: Record<string,
   if (!Array.isArray(words) || words.length === 0) {
     throw new ApiError(400, 'invalid-argument', 'words は必須です。');
   }
-  const date = requireString(data.date, 'date');
+  if (words.length > MAX_WORDS_ITEMS) {
+    throw new ApiError(400, 'invalid-argument', `words は${MAX_WORDS_ITEMS}件以内である必要があります。`);
+  }
+  assertMaxItemTextLength(words, 'words', MAX_SHORT_TEXT_LENGTH);
+  const date = requireString(data.date, 'date', MAX_DATE_LENGTH);
 
   const userText = JSON.stringify({
     words,
@@ -192,7 +241,7 @@ const ADJUST_DIARY_SCHEMA = {
 
 // テストのため export（insight.ts の handleGenerateInsight と同様の方針）。
 export async function handleAdjustDiary(llm: LlmProvider, data: Record<string, unknown>) {
-  const bodyText = requireString(data.bodyText, 'bodyText');
+  const bodyText = requireString(data.bodyText, 'bodyText', MAX_BODY_TEXT_LENGTH);
   const instruction = data.instruction as AdjustInstruction;
   if (!['positive', 'shorter', 'detailed'].includes(instruction)) {
     throw new ApiError(400, 'invalid-argument', 'instruction が不正です。');
@@ -267,6 +316,10 @@ function buildPastTrendNote(entries: EntrySummary[]): string | null {
 export async function handleChat(env: Env, llm: LlmProvider, uid: string, data: Record<string, unknown>) {
   const message = requireString(data.message, 'message');
   const rawHistory = Array.isArray(data.history) ? data.history : [];
+  if (rawHistory.length > MAX_ARRAY_ITEMS) {
+    throw new ApiError(400, 'invalid-argument', `history は${MAX_ARRAY_ITEMS}件以内である必要があります。`);
+  }
+  assertMaxItemTextLength(rawHistory, 'history', MAX_TEXT_LENGTH);
   const history = toLlmHistory(rawHistory as { role: ChatRole; text: string }[]);
 
   // 当該エントリ本文のサーバ側文脈補完（api-contract.md 3.4 備考）。
@@ -274,7 +327,7 @@ export async function handleChat(env: Env, llm: LlmProvider, uid: string, data: 
   // この日の感情・本文という土台が失われるため、entryId から都度サーバ側で補う。
   // entryId 不正・エントリ削除済み等（getEntry が null）は文脈補完なしにフォールバックする
   // （必須情報ではないため、取得失敗で対話自体を止めない）。
-  const entryId = typeof data.entryId === 'string' ? data.entryId : undefined;
+  const entryId = optionalString(data.entryId, 'entryId');
   const entry = entryId
     ? await getEntry(env, uid, entryId).catch((err: unknown) => {
         console.warn('getEntry failed, falling back', (err as Error)?.name);
@@ -327,15 +380,15 @@ export async function handleChat(env: Env, llm: LlmProvider, uid: string, data: 
 // 解消し取得経路を揃える。reviewer所見）。
 // テストのため export（handleChat と同様の方針）。
 export async function handleChatOpening(env: Env, llm: LlmProvider, uid: string, data: Record<string, unknown>) {
-  const entryId = typeof data.entryId === 'string' ? data.entryId : undefined;
+  const entryId = optionalString(data.entryId, 'entryId');
   const entry = entryId
     ? await getEntry(env, uid, entryId).catch((err: unknown) => {
         console.warn('getEntry failed, falling back', (err as Error)?.name);
         return null;
       })
     : null;
-  const mood = entry ? entry.mood : typeof data.mood === 'string' ? data.mood : null;
-  const bodyText = entry ? entry.bodyText : typeof data.bodyText === 'string' ? data.bodyText : '';
+  const mood = entry ? entry.mood : (optionalString(data.mood, 'mood') ?? null);
+  const bodyText = entry ? entry.bodyText : (optionalString(data.bodyText, 'bodyText', MAX_BODY_TEXT_LENGTH) ?? '');
 
   const userText = JSON.stringify({
     mood,

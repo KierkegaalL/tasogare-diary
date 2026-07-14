@@ -20,7 +20,7 @@ export const firestoreMessagesRepository: MessagesRepository = {
     return onSnapshot(
       q,
       (snap) => onChange(snap.docs.map((d) => fromDoc(d.id, d.data()))),
-      (error) => console.warn('[firestore] messages subscribe error:', error.message),
+      (error) => console.warn('[firestore] messages subscribe error:', error.code),
     );
   },
   async add(uid, entryId, message) {

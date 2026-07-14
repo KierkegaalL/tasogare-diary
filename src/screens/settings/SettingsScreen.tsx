@@ -10,13 +10,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNetInfo } from '@react-native-community/netinfo';
 import QRCode from 'react-native-qrcode-svg';
 
 import { useRootNavigation } from '../../app/navigation/hooks';
 import { ScreenShell } from '../../components/ScreenShell';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { useLinkableAccountKinds } from '../../hooks/useAccountLink';
+import { useIsOffline } from '../../hooks/useIsOffline';
 import { deleteAccount, isAccountDeletionAvailable } from '../../services/account';
 import { isFirebaseConfigured } from '../../services/firebase/config';
 import { createPairingToken, isPairingAvailable, pairingQrPayload } from '../../services/pairing';
@@ -139,8 +139,7 @@ function WebAccountRow() {
 // QRペアリング本体（ネイティブのみ）。createPairingToken で短命トークン（60秒）を発行しQR表示。
 // 失効に合わせて自動再発行する。
 function QrPairingBody() {
-  const netInfo = useNetInfo();
-  const isOffline = netInfo.isConnected === false;
+  const isOffline = useIsOffline();
 
   const [token, setToken] = useState<string | null>(null);
   const [ttl, setTtl] = useState(60);

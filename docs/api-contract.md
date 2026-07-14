@@ -42,7 +42,7 @@ Firebase の標準エラーコード相当のコード体系を用いる（Calla
 | code | 意味 | 例 |
 |---|---|---|
 | `unauthenticated` | 未認証 | ID トークン無し |
-| `invalid-argument` | 入力不正 | 必須欠落・型不一致 |
+| `invalid-argument` | 入力不正 | 必須欠落・型不一致・文字数/件数の上限超過（`worker/src/index.ts` の `MAX_TEXT_LENGTH`等。3.1〜3.4節の各エンドポイント） |
 | `resource-exhausted` | レート/クォータ超過 | AI API レート、関数同時実行 |
 | `unavailable` | 一時障害 | AI API 一時エラー、ネットワーク |
 | `deadline-exceeded` | タイムアウト | 生成が上限超過 |

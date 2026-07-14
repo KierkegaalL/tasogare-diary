@@ -10,7 +10,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNetInfo } from '@react-native-community/netinfo';
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 
@@ -20,6 +19,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useEntriesStore } from '../../stores/entriesStore';
 import { useMessagesStore } from '../../stores/messagesStore';
 import { useChat } from '../../hooks/useChat';
+import { useIsOffline } from '../../hooks/useIsOffline';
 import { chatOpening } from '../../services/diaryApi';
 import { ScreenShell } from '../../components/ScreenShell';
 import { MoodBadge } from '../../components/MoodBadge';
@@ -64,8 +64,7 @@ export function DetailScreen() {
     return () => teardownMessages(entryId);
   }, [uid, entryId, bootstrapMessages, teardownMessages]);
 
-  const netInfo = useNetInfo();
-  const isOffline = netInfo.isConnected === false;
+  const isOffline = useIsOffline();
 
   const chatMutation = useChat();
   const [text, setText] = useState('');
