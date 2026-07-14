@@ -8,7 +8,7 @@ import { isClaudeWorkerConfigured } from './claudeWorker/config';
 // 呼び出し後、Auth ユーザーが消えるため現在の ID トークンは無効になる。呼び出し側は
 // ローカル状態（stores / AsyncStorage）を破棄してサインアウト相当の画面に戻すこと。
 //
-// UI（設定画面の削除導線）は screen.md 3.9 で「将来」とされているため未実装。
+// UI（設定画面の削除導線）は実装済み（SettingsScreen.tsx の DeleteAccountSection。2段階確認。screen.md 3.9）。
 
 // Worker 未設定（モック運用）ではアカウント削除を提供しない。
 // 削除は不可逆なため、モックで「削除できたふり」をしない方針。

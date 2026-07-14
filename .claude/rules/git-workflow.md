@@ -33,6 +33,8 @@ gh pr create --base develop --head feature/diary-step-flow   # base は必ず de
 
 > PR 作成時は `--base develop` を必ず指定。base が `main` になっていないか毎回確認する。
 
+> マージ済みの作業ブランチは、ローカルの `git branch -d <branch>` で削除する（develop へのマージ確認後）。放置するとローカルブランチが際限なく増えるため、区切りのよいタイミング（チェックポイント等）で `git branch --merged develop` を確認しまとめて削除するとよい。
+
 ## コミットメッセージ
 
 - 命令形の要約 + 必要に応じて本文。プレフィックス例: `feat:` / `fix:` / `chore:` / `docs:` / `test:`

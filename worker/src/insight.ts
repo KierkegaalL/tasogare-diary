@@ -226,6 +226,12 @@ export function isCacheFresh(cached: InsightDoc, rangeEnd: string, now: number =
 
 // ---- ハンドラ ----
 
+// 同一 (uid, periodId) への同時リクエスト（複数タブ・cronとオンデマンドの重複等）を1回の
+// 生成にまとめるための進行中Promiseキャッシュ。Cloudflare Workersは複数インスタンスが並行
+// 実行されうるため完全な排他ではないが、同一インスタンス内での重複LLM呼び出し（実害小・
+// コストの無駄）を減らせる範囲での簡易対策とする。
+const inFlightGenerations = new Map<string, Promise<InsightDoc>>();
+
 export async function handleGenerateInsight(
   env: Env,
   llm: LlmProvider,
@@ -241,8 +247,28 @@ export async function handleGenerateInsight(
     throw new ApiError(400, 'invalid-argument', 'periodKey は必須です。');
   }
 
-  const { rangeStart, rangeEnd } = periodRange(type, periodKey);
   const periodId = `${type}_${periodKey}`; // data.md 3.5
+  const key = `${uid}:${periodId}`;
+
+  const existing = inFlightGenerations.get(key);
+  if (existing) return existing;
+
+  const promise = runGenerateInsight(env, llm, uid, type, periodKey, periodId).finally(() => {
+    inFlightGenerations.delete(key);
+  });
+  inFlightGenerations.set(key, promise);
+  return promise;
+}
+
+async function runGenerateInsight(
+  env: Env,
+  llm: LlmProvider,
+  uid: string,
+  type: InsightType,
+  periodKey: string,
+  periodId: string,
+): Promise<InsightDoc> {
+  const { rangeStart, rangeEnd } = periodRange(type, periodKey);
 
   const cached = await getInsight(env, uid, periodId);
   if (cached && isCacheFresh(cached, rangeEnd)) return cached;

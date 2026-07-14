@@ -75,6 +75,15 @@ export function DetailScreen() {
 
   const busy = chatMutation.isPending;
 
+  // アンマウント後の非同期コールバックによる setState を防ぐ（PreviewScreen.tsx と同じパターン）。
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // 空対話時に AI の最初の問いかけを生成する（screen.md 3.8）。
   const runOpening = useCallback(() => {
     if (!entry || !uid) return;
@@ -84,7 +93,7 @@ export function DetailScreen() {
       .then((res) => addMessage(uid, entryId, createMessage('ai', res.reply)))
       .catch(() => {
         openingRequested.current = false;
-        setOpeningError(true);
+        if (isMountedRef.current) setOpeningError(true);
       });
   }, [entry, uid, entryId, addMessage]);
 
@@ -103,6 +112,7 @@ export function DetailScreen() {
     const meMessage = createMessage('me', trimmed);
     void addMessage(uid, entryId, meMessage).catch(() => {
       // 楽観追加自体の永続化失敗。購読には反映されないため入力を復元するのみで足りる。
+      if (!isMountedRef.current) return;
       setText(trimmed);
       setSendError(true);
     });
@@ -123,6 +133,7 @@ export function DetailScreen() {
           void removeMessage(uid, entryId, meMessage.id).catch(() =>
             console.warn('[chat] 送信失敗メッセージの取り消しに失敗しました'),
           );
+          if (!isMountedRef.current) return;
           setText(trimmed);
           setSendError(true);
         },

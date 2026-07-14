@@ -70,7 +70,6 @@ describe('draftStore', () => {
       mood: '復元済みの気持ち',
       words: [{ text: '復元語', category: 'assoc', source: 'selected' }],
       bodyText: '復元された本文',
-      moodLevel: 'calm',
       awareness: '復元された気づき',
     };
     await AsyncStorage.setItem('tasogare-draft', JSON.stringify({ state: persistedState, version: 0 }));
@@ -82,7 +81,6 @@ describe('draftStore', () => {
     expect(draft().mood).toBe(persistedState.mood);
     expect(draft().words).toEqual(persistedState.words);
     expect(draft().bodyText).toBe(persistedState.bodyText);
-    expect(draft().moodLevel).toBe(persistedState.moodLevel);
     expect(draft().awareness).toBe(persistedState.awareness);
     expect(draft().hasHydrated).toBe(true);
   });

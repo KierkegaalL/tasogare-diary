@@ -202,20 +202,20 @@ tasogare-diary/
 - [x] `worker/src/index.ts`（`handleSuggestWords`/`handleGenerateDiary`/`handleAdjustDiary`/`handleChat`/`handleChatOpening`）に文字列・配列長の上限検証が無かった問題。`MAX_TEXT_LENGTH`等の上限定数と`asStringArray`/`requireString`/`optionalString`/`assertMaxItemTextLength`ヘルパーで各フィールドを検証するよう追加
 - [x] リポジトリ直下の`wrangler.jsonc`＋関連`package.json`スクリプトの残骸。ユーザー確認の結果「破棄する」を選択し、`.gitignore`/`package.json`/`package-lock.json`を元に戻し`wrangler.jsonc`を削除して解消済み
 
-*重大度 低*
-- [ ] `worker/README.md`「アカウント削除UI未実装」記述が陳腐化（実装済み）
-- [ ] `src/services/account.ts`のコメントが「未実装」のまま陳腐化
-- [ ] `WordsScreen.tsx`/`nativeFirebaseFlag.ts`のコメントが陳腐化（「モック」「将来」表現）
-- [ ] `draftStore`の`moodLevel`/`setMoodLevel`がデッドコード（どの画面からも呼ばれていない）
-- [ ] `DetailScreen`の非同期チャット処理（`runOpening`/`chatMutation`のonSuccess/onError）にアンマウントガードが無い（`PreviewScreen`の`isMountedRef`パターンとの不統一）
-- [ ] worker側で`history`のサーバ側切り詰めが無い（クライアント任せの多層防御不足）
-- [ ] `generateInsight`の同時リクエストで重複生成が起きうる（実害小・LLM呼び出しの無駄のみ）
-- [ ] `pairing.ts`: `mintCustomToken`失敗時、既に消費済みトークンのため再試行不可になる（失効時と同じ体験になり切り分けづらい）
-- [ ] `docs/screen.md`の`.dash-sidebar`記述がWeb実装（ヘッダーのみ、サイドバー無し）と不一致
-- [ ] `.claude/rules/features.md`のPhase定義表が粒度として古い（ネイティブFirebase移行等のサブフェーズ未反映）
-- [ ] マージ済みローカルブランチ37本の残存（任意のgit hygiene。`git-workflow.md`にマージ後削除の一文追記も検討）
+*重大度 低*（2026-07-15 対応完了・PR作成済み）
+- [x] `worker/README.md`「アカウント削除UI未実装」記述が陳腐化していた問題。実装済み（`DeleteAccountSection`）である旨に修正
+- [x] `src/services/account.ts`のコメントが「未実装」のまま陳腐化していた問題。実装済みである旨に修正
+- [x] `WordsScreen.tsx`/`nativeFirebaseFlag.ts`のコメントが陳腐化していた問題（「モック」「将来」表現）。実態（isClaudeWorkerConfiguredによる自動切替／Phase6実装済み）に修正
+- [x] `draftStore`の`moodLevel`/`setMoodLevel`がデッドコードだった問題。`DiaryDraft`型・ストア・テストから削除
+- [x] `DetailScreen`の非同期チャット処理にアンマウントガードが無かった問題。`isMountedRef`パターン（`PreviewScreen`と同一）を追加
+- [x] worker側で`history`のサーバ側切り詰めが無かった問題。`MAX_HISTORY_MESSAGES_TO_LLM=20`でLLMへ渡す直近件数を切り詰めるよう追加（クライアントの`HISTORY_LIMIT=6`だけに頼らない多層防御）
+- [x] `generateInsight`の同時リクエストで重複生成が起きうる問題。同一`(uid,periodId)`の同時リクエストを1つのPromiseにまとめる`inFlightGenerations`を追加
+- [x] `pairing.ts`: `mintCustomToken`失敗時に再試行不可になる問題。`mintCustomToken`→`consumePairing`の順に入れ替え、mint失敗時はトークン未消費のまま再試行可能に
+- [x] `docs/screen.md`の`.dash-sidebar`記述がWeb実装と不一致だった問題。ヘッダーのみでサイドバー無しの実態に修正
+- [x] `.claude/rules/features.md`のPhase定義表が粒度として古かった問題。ネイティブFirebase移行（別軸Phase1〜7）の注記を追加
+- [x] マージ済みローカルブランチ37本を`git branch -d`で削除し、`git-workflow.md`にマージ後削除を促す一文を追記
 
-*テストカバレッジ（参考）*: `web/`はテストランナー自体が無く、QRスキャナ・無限スクロール・タブ切替の世代ガード・Google OAuthポップアップ・`period.ts`のタイムゾーン依存計算等は手動確認のみで担保されている。
+*テストカバレッジ（参考・対応完了）*: `web/`にvitestを新規導入（`web/vitest.config.ts`）し、タイムゾーン依存のISO週計算を含む`period.ts`の単体テストを追加。QRスキャナ・無限スクロール・タブ切替の世代ガード・Google OAuthポップアップはブラウザAPI依存が大きいため引き続き手動確認のみで担保する方針を明記（`web/README.md`）。
 
 **B. コスト回避・Apple Developer Program関連（意図的な既知の制約。バグではない・ユーザー指示によりAとは別枠管理）**
 - Firebase Sparkプラン維持のためCloud Functions不採用、Cloudflare Workers経由（`worker/`）

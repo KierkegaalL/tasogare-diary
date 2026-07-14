@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 import type { DiaryDraft, DiaryWord, WordSource } from '../types/diary';
-import type { MoodLevel } from '../theme/colors';
 import { storage } from '../services/storage';
 
 interface DraftState extends DiaryDraft {
@@ -14,7 +13,6 @@ interface DraftState extends DiaryDraft {
   addWord: (word: DiaryWord) => void;
   removeWord: (text: string) => void;
   setBodyText: (bodyText: string) => void;
-  setMoodLevel: (level: MoodLevel | null) => void;
   setAwareness: (awareness: string) => void;
   reset: () => void;
 }
@@ -24,7 +22,6 @@ const initialDraft: DiaryDraft = {
   mood: undefined,
   words: [],
   bodyText: undefined,
-  moodLevel: undefined,
   awareness: undefined,
 };
 
@@ -53,7 +50,6 @@ export const useDraftStore = create<DraftState>()(
         }),
       removeWord: (text) => set((state) => ({ words: state.words.filter((w) => w.text !== text) })),
       setBodyText: (bodyText) => set({ bodyText }),
-      setMoodLevel: (moodLevel) => set({ moodLevel }),
       setAwareness: (awareness) => set({ awareness }),
       reset: () => set({ ...initialDraft }),
     }),
@@ -65,7 +61,6 @@ export const useDraftStore = create<DraftState>()(
         mood: state.mood,
         words: state.words,
         bodyText: state.bodyText,
-        moodLevel: state.moodLevel,
         awareness: state.awareness,
       }),
       onRehydrateStorage: () => (_state, error) => {

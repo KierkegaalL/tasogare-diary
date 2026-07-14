@@ -40,6 +40,14 @@
 | Phase 1 | 4ステップ日記フロー（ローカル完結・Claude API 応答） | ステップ4 |
 | Phase 2 | Firebase 連携（Auth / Firestore 永続化） | ステップ4 |
 | Phase 3 | QRペアリング | ステップ4 |
-| Phase 4 | 「こころの灯」オーブ表現・演出磨き込み | ステップ4 |
+| Phase 4 | 「こころの灯」オーブ表現・演出磨き込み・Web ダッシュボード | ステップ4 |
+
+> **Phase 0〜4はすべて完了済み**（[CLAUDE.md](../../CLAUDE.md)「現在のフェーズ」節）。上表は粗い区分のため、Phase内の主要サブフェーズも参考として記載する。
+
+### Phase 4 のサブフェーズ（Web ダッシュボード・QRペアリング等の実装単位）
+週次/月次/過去3ヶ月インサイト、日記一覧（Web）、Apple/Googleリンク昇格、ネイティブ資格情報取得等を段階的に実装。詳細な実装経緯は [Memory.md](../../Memory.md) を参照。
+
+### ネイティブFirebase移行（Phase0〜4完了後・別軸のPhase番号、完了済み）
+Firebase Auth/Firestore を JS SDK からネイティブSDK（`@react-native-firebase`）へ移行する取り組みを、上表とは独立した Phase1〜7 として管理した（**混同注意**：本節の Phase0〜4とは別のナンバリング体系）。設計・手順の正は [docs/migration-react-native-firebase.md](../../docs/migration-react-native-firebase.md)。全フェーズ完了・実機検証済み。
 
 > 各機能の受け入れ条件・詳細仕様は Notion を参照。実装時は Phase 単位で分割する。

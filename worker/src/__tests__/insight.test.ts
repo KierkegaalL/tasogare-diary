@@ -329,4 +329,38 @@ describe('handleGenerateInsight', () => {
     );
     expect(opts.userText).not.toContain('bodyText');
   });
+
+  it('同一(uid, periodId)への同時リクエストはLLM呼び出し・保存を1回にまとめる（多重生成の防止）', async () => {
+    vi.mocked(getInsight).mockResolvedValue(null);
+    // 実際の非同期I/Oを模して、両方の呼び出しが「キャッシュ無し」を観測してから生成に進める
+    // ようマイクロタスクを1つ挟む（Promise.resolve().then）。
+    vi.mocked(queryEntriesByDateRange).mockImplementation(async () => {
+      await Promise.resolve();
+      return [entry('2026-01-05', 'calm', [])];
+    });
+    const llm = llmStub();
+
+    const [a, b] = await Promise.all([
+      handleGenerateInsight(ENV, llm, 'u1', { type: 'monthly', periodKey: '2026-01' }),
+      handleGenerateInsight(ENV, llm, 'u1', { type: 'monthly', periodKey: '2026-01' }),
+    ]);
+
+    expect(a).toBe(b); // 同一Promiseに相乗りするため同一オブジェクト。
+    expect(llm.callText).toHaveBeenCalledTimes(1);
+    expect(saveInsight).toHaveBeenCalledTimes(1);
+  });
+
+  it('異なるperiodIdへの同時リクエストはそれぞれ独立して生成する', async () => {
+    vi.mocked(getInsight).mockResolvedValue(null);
+    vi.mocked(queryEntriesByDateRange).mockResolvedValue([entry('2026-01-05', 'calm', [])]);
+    const llm = llmStub();
+
+    const [monthly, weekly] = await Promise.all([
+      handleGenerateInsight(ENV, llm, 'u1', { type: 'monthly', periodKey: '2026-01' }),
+      handleGenerateInsight(ENV, llm, 'u1', { type: 'weekly', periodKey: '2026-W02' }),
+    ]);
+
+    expect(monthly).not.toBe(weekly);
+    expect(llm.callText).toHaveBeenCalledTimes(2);
+  });
 });

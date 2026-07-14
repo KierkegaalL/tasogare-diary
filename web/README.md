@@ -36,6 +36,9 @@ PC で日記を振り返るための **閲覧専用**ダッシュボード（[U-
 | 開発サーバ（:3000） | `npm --prefix web run dev` |
 | 静的ビルド（`out/`） | `npm --prefix web run build` |
 | 型チェック | `npm --prefix web run typecheck` |
+| ユニットテスト | `npm --prefix web test` （= `vitest run`） |
+
+> **テストカバレッジについて**: `src/lib/period.ts`（期間キー算出。タイムゾーン依存のISO週計算を含む）等、DOM/ブラウザAPIに依存しない純粋なロジックのみをvitestで自動テストする。QRスキャナ（`QrScanner.tsx`）・無限スクロール（`fetchEntriesPage`＋`IntersectionObserver`）・ダッシュボードの期間タブ切替時のリクエスト重複防止・Google/Apple OAuthポップアップは、ブラウザ実行環境への依存が大きくテスト環境構築のコストに見合わないため、引き続き手動確認のみで担保する。
 
 ## デプロイ（Firebase Hosting・staging/prod）
 
