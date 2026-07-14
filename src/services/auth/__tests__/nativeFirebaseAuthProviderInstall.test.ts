@@ -6,6 +6,8 @@ import auth from '@react-native-firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { nativeFirebaseAuthProvider } from '../nativeFirebaseAuthProviderInstall';
+import { setCredentialSource, resetCredentialSource } from '../credentialSource';
+import type { OAuthCredentialSource } from '../types';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -22,10 +24,25 @@ jest.mock('@react-native-firebase/auth', () => {
     signInAnonymously: jest.fn(),
     signInWithCustomToken: jest.fn(),
     signOut: jest.fn(async () => undefined),
-    currentUser: null as null | { getIdToken: () => Promise<string> },
+    currentUser: null as null | {
+      isAnonymous: boolean;
+      getIdToken: () => Promise<string>;
+      linkWithCredential: jest.Mock;
+    },
   };
   const authFn = jest.fn(() => api);
-  return { __esModule: true, default: authFn };
+  // GoogleAuthProvider.credential / OAuthProvider('apple.com').credential の結線を検証するための最小モック。
+  const GoogleAuthProvider = { credential: jest.fn((idToken: string, accessToken?: string) => ({ providerId: 'google.com', idToken, accessToken })) };
+  class OAuthProvider {
+    id: string;
+    constructor(id: string) {
+      this.id = id;
+    }
+    credential(opts: { idToken: string; rawNonce?: string }) {
+      return { providerId: this.id, ...opts };
+    }
+  }
+  return { __esModule: true, default: Object.assign(authFn, { GoogleAuthProvider, OAuthProvider }) };
 });
 
 // モック API を取り出す（auth() は常に同じインスタンスを返す）。
@@ -34,15 +51,21 @@ const authApi = (auth as unknown as jest.Mock)() as {
   signInAnonymously: jest.Mock;
   signInWithCustomToken: jest.Mock;
   signOut: jest.Mock;
-  currentUser: null | { getIdToken: () => Promise<string> };
+  currentUser: null | { isAnonymous: boolean; getIdToken: () => Promise<string>; linkWithCredential: jest.Mock };
 };
 
 const MIGRATED_KEY = 'tasogare-native-firebase-migrated';
+
+const fakeGoogleSource = (): OAuthCredentialSource => ({
+  isAvailable: () => true,
+  getCredential: async () => ({ kind: 'google', idToken: 'id-token', accessToken: 'access-token' }),
+});
 
 afterEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
   authApi.currentUser = null;
+  resetCredentialSource();
 });
 
 describe('nativeFirebaseAuthProviderInstall（実モジュール束ね）', () => {
@@ -76,7 +99,7 @@ describe('nativeFirebaseAuthProviderInstall（実モジュール束ね）', () =
   });
 
   it('getIdToken: currentUser の getIdToken を返す。未サインインなら throw', async () => {
-    authApi.currentUser = { getIdToken: jest.fn(async () => 'native-token') };
+    authApi.currentUser = { isAnonymous: true, getIdToken: jest.fn(async () => 'native-token'), linkWithCredential: jest.fn() };
     expect(await nativeFirebaseAuthProvider.getIdToken()).toBe('native-token');
 
     authApi.currentUser = null;
@@ -86,5 +109,34 @@ describe('nativeFirebaseAuthProviderInstall（実モジュール束ね）', () =
   it('signOut: auth().signOut を呼ぶ', async () => {
     await nativeFirebaseAuthProvider.signOut();
     expect(authApi.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('linkWith(google): GoogleAuthProvider.credential を組み立て currentUser.linkWithCredential を呼ぶ', async () => {
+    setCredentialSource(fakeGoogleSource());
+    const linkWithCredential = jest.fn(async () => ({ user: { uid: 'anon-1', isAnonymous: false, displayName: null } }));
+    authApi.currentUser = { isAnonymous: true, getIdToken: jest.fn(), linkWithCredential };
+
+    const user = await nativeFirebaseAuthProvider.linkWith!('google');
+
+    expect(linkWithCredential).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'google.com', idToken: 'id-token', accessToken: 'access-token' }),
+    );
+    expect(user).toEqual({ uid: 'anon-1', provider: 'google', displayName: undefined, isAnonymous: false });
+  });
+
+  it('linkWith: セッションが無ければ no-anonymous-session（linkWithCredential も呼ばれない）', async () => {
+    setCredentialSource(fakeGoogleSource());
+    authApi.currentUser = null;
+    await expect(nativeFirebaseAuthProvider.linkWith!('google')).rejects.toMatchObject({
+      code: 'no-anonymous-session',
+    });
+  });
+
+  it('linkWith: 既に恒久アカウント（非匿名）なら already-linked', async () => {
+    setCredentialSource(fakeGoogleSource());
+    const linkWithCredential = jest.fn();
+    authApi.currentUser = { isAnonymous: false, getIdToken: jest.fn(), linkWithCredential };
+    await expect(nativeFirebaseAuthProvider.linkWith!('google')).rejects.toMatchObject({ code: 'already-linked' });
+    expect(linkWithCredential).not.toHaveBeenCalled();
   });
 });

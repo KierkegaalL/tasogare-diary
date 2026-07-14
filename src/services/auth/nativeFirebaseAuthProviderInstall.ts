@@ -2,7 +2,8 @@ import auth from '@react-native-firebase/auth';
 import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import type { AuthProvider } from './types';
+import type { AuthProvider, OAuthCredentialInput } from './types';
+import { AuthLinkError } from './types';
 import {
   createNativeFirebaseAuthProvider,
   type MigrationFlagStore,
@@ -23,6 +24,17 @@ const MIGRATED_KEY = 'tasogare-native-firebase-migrated';
 
 function toNativeUser(user: FirebaseAuthTypes.User): NativeFirebaseUser {
   return { uid: user.uid, isAnonymous: user.isAnonymous, displayName: user.displayName };
+}
+
+// プロバイダ非依存の資格情報を @react-native-firebase/auth の AuthCredential に組み立てる
+// （firebaseAuthProvider.ts の buildFirebaseCredential と同じ方針。ネイティブ依存をここに閉じ込める）。
+function buildNativeCredential(input: OAuthCredentialInput): FirebaseAuthTypes.AuthCredential {
+  if (input.kind === 'google') {
+    return auth.GoogleAuthProvider.credential(input.idToken, input.accessToken);
+  }
+  // Apple: @react-native-firebase/auth の名前空間型は modular SDK と異なり credential(token, secret) の
+  // 位置引数形式（firebase/auth の { idToken, rawNonce } オブジェクト形式とは違う）。
+  return new auth.OAuthProvider('apple.com').credential(input.idToken, input.rawNonce);
 }
 
 // @react-native-firebase/auth を NativeAuthBinding へ束ねる。
@@ -50,6 +62,21 @@ const nativeBinding: NativeAuthBinding = {
   },
   signOut: async () => {
     await auth().signOut();
+  },
+  getCurrentUser: () => {
+    const user = auth().currentUser;
+    return user ? toNativeUser(user) : null;
+  },
+  linkWithCredential: async (input: OAuthCredentialInput) => {
+    const currentUser = auth().currentUser;
+    if (!currentUser) {
+      // 呼び出し元（nativeFirebaseAuthProvider.linkWith）が getCurrentUser() で事前チェック済みのため
+      // 通常到達しないが、チェックとサインインUI待機の間に外部でサインアウトされる競合に備えた防御。
+      throw new AuthLinkError('no-anonymous-session', 'サインイン済みのセッションがありません。');
+    }
+    const credential = buildNativeCredential(input);
+    const result = await currentUser.linkWithCredential(credential);
+    return toNativeUser(result.user);
   },
 };
 

@@ -1,4 +1,6 @@
-import type { AuthProvider, AuthUser } from './types';
+import type { AccountLinkKind, AuthProvider, AuthUser, OAuthCredentialInput } from './types';
+import { AuthLinkError, mapFirebaseLinkError } from './types';
+import { getCredentialSource } from './credentialSource';
 
 // ネイティブ Firebase 認証プロバイダ（@react-native-firebase/auth）の中核実装
 // （docs/migration-react-native-firebase.md 第3章・第4章）。
@@ -31,6 +33,17 @@ export interface NativeAuthBinding {
   getIdToken(): Promise<string | null>;
   /** サインアウト。 */
   signOut(): Promise<void>;
+  /**
+   * 現在のネイティブセッション（同期）。未サインインなら null。
+   * linkWith のセッション有無／匿名判定に使う（firebaseAuthProvider.linkWith の currentUser 同期参照と同じ役割）。
+   */
+  getCurrentUser(): NativeFirebaseUser | null;
+  /**
+   * 現在のネイティブ匿名セッションを Apple/Google の資格情報でリンク昇格する（uid・データ維持）。
+   * セッション有無／匿名判定は呼び出し側（nativeFirebaseAuthProvider.linkWith）が getCurrentUser() で
+   * 事前に行う前提の実装でよい（ネイティブのサインインUIを起動する前にエラーで弾くため）。
+   */
+  linkWithCredential(input: OAuthCredentialInput): Promise<NativeFirebaseUser>;
 }
 
 /** 「移行済み」ローカルフラグの読み書き（既定は AsyncStorage 実装。install ファイルで注入）。 */
@@ -44,8 +57,9 @@ export interface NativeFirebaseAuthDeps {
   /**
    * 現行 JS SDK プロバイダ（firebaseAuthProvider）。移行ブリッジで「まず JS SDK セッションを復元」
    * （第4章 手順1）・「その ID トークンを取得」（手順2）・フォールバック時のサインアウトに使う。
+   * `linkWith` は js-fallback 中（ブリッジ未完了の起動）のリンク昇格を JS 側へ委譲するために使う。
    */
-  jsProvider: Pick<AuthProvider, 'init' | 'getIdToken' | 'signOut'>;
+  jsProvider: Pick<AuthProvider, 'init' | 'getIdToken' | 'signOut' | 'linkWith'>;
   /** JS SDK の ID トークンを Worker /migrateToNativeAuth に送り、同一 uid のカスタムトークンを得る。 */
   mintCustomToken(jsIdToken: string): Promise<string>;
   migrationFlag: MigrationFlagStore;
@@ -53,7 +67,8 @@ export interface NativeFirebaseAuthDeps {
 
 function toAuthUser(user: NativeFirebaseUser): AuthUser {
   // provider は既存の firebaseAuthProvider.toAuthUser と揃えて 'anonymous' 固定。
-  // 恒久アカウント（Apple/Google リンク）かどうかは isAnonymous で表す（Phase5 でリンク実装）。
+  // 恒久アカウント（Apple/Google リンク）かどうかは isAnonymous で表す（linkWith 後は toAuthUser を
+  // 経由せず linkWith 内で provider=kind を直接組み立てる）。
   return {
     uid: user.uid,
     provider: 'anonymous',
@@ -147,7 +162,44 @@ export function createNativeFirebaseAuthProvider(deps: NativeFirebaseAuthDeps): 
       return token;
     },
 
-    // linkWith（Apple/Google 恒久アカウント昇格）は Phase5 で実装する。未実装のため canLinkAccount は
-    // false を返し、UI 導線は出さない（src/services/auth/index.ts）。
+    linkWith: async (kind: AccountLinkKind): Promise<AuthUser> => {
+      // js-fallback 中はネイティブ匿名セッションが確立していない（この起動は JS SDK セッションのみで
+      // 動作中）ため、リンク昇格も JS 側（firebaseAuthProvider.linkWith）へ委譲する。
+      if (mode === 'js-fallback') {
+        if (!jsProvider.linkWith) {
+          throw new AuthLinkError('unknown', 'この起動ではアカウント連携を利用できません。再度お試しください。');
+        }
+        return jsProvider.linkWith(kind);
+      }
+
+      // セッション有無／匿名判定はネイティブのサインインUIを起動する**前**に行う（firebaseAuthProvider.linkWith
+      // と同じ順序。先に資格情報取得へ進むと、弾かれる場合でもユーザーにGoogle/Appleサインイン画面を
+      // 最後まで完了させてしまう＝reviewer指摘で判明した不具合の修正）。
+      const current = native.getCurrentUser();
+      if (!current) {
+        throw new AuthLinkError('no-anonymous-session', 'サインイン済みのセッションがありません。');
+      }
+      if (!current.isAnonymous) {
+        throw new AuthLinkError('already-linked', 'すでに恒久アカウントにリンク済みです。');
+      }
+
+      // ネイティブのサインインUIから資格情報を取得（未対応環境なら 'unavailable'、キャンセルなら
+      // 'cancelled' を投げる。firebaseAuthProvider.linkWith と同じ credentialSource シームを使う）。
+      const input = await getCredentialSource().getCredential(kind);
+      try {
+        const linkedUser = await native.linkWithCredential(input);
+        return {
+          uid: linkedUser.uid,
+          provider: kind,
+          displayName: linkedUser.displayName ?? undefined,
+          isAnonymous: false,
+        };
+      } catch (err) {
+        // native.linkWithCredential は（レース対策の防御として）AuthLinkError を直接投げることがある
+        // （install側コメント参照）。既に写像済みのエラーを mapFirebaseLinkError で二重写像しない。
+        if (err instanceof AuthLinkError) throw err;
+        throw mapFirebaseLinkError(kind, err);
+      }
+    },
   };
 }
