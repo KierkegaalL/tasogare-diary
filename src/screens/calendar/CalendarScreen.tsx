@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  SectionList,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useRootNavigation } from '../../app/navigation/hooks';
@@ -26,21 +35,40 @@ export function CalendarScreen() {
   const [query, setQuery] = useState('');
 
   const moodByDate = useMemo(() => buildMoodByDate(entries), [entries]);
-  const cells = useMemo(() => monthGrid(todayISO()), []);
+  // 週ごと（7列）に区切って行として描画する。flexWrap による折り返しに任せると、
+  // 100/7% の丸め誤差（Yoga のピクセル丸めが端末・プラットフォームで異なる）により
+  // 最終列（日曜）が次行に折り返されて欠けて見えることがあるため（iOS実機で確認・Issue #60）。
+  const weeks = useMemo(() => {
+    const cells = monthGrid(todayISO());
+    const rows: (string | null)[][] = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      const week = cells.slice(i, i + 7);
+      while (week.length < 7) week.push(null);
+      rows.push(week);
+    }
+    return rows;
+  }, []);
 
   const openEntry = (date: string) => {
     const entry = entries.find((e) => e.date === date);
     if (entry) navigation.navigate('Detail', { entryId: entry.id });
   };
   // EntryRow（React.memo）の props を安定させ、検索入力毎の再レンダーで仮想化の恩恵が薄れないようにする。
-  const openEntryById = useCallback((id: string) => navigation.navigate('Detail', { entryId: id }), [navigation]);
+  const openEntryById = useCallback(
+    (id: string) => navigation.navigate('Detail', { entryId: id }),
+    [navigation],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.headerPlain}>
         <Text style={styles.appTitle}>過去の日記</Text>
         <View style={styles.toggle}>
-          <ToggleTab label="カレンダー" active={mode === 'calendar'} onPress={() => setMode('calendar')} />
+          <ToggleTab
+            label="カレンダー"
+            active={mode === 'calendar'}
+            onPress={() => setMode('calendar')}
+          />
           <ToggleTab label="リスト" active={mode === 'list'} onPress={() => setMode('list')} />
         </View>
       </View>
@@ -55,27 +83,43 @@ export function CalendarScreen() {
               </Text>
             ))}
           </View>
-          <View style={styles.grid}>
-            {cells.map((iso, i) => {
-              if (!iso) return <View key={`blank-${i}`} style={styles.cell} />;
-              const mood = moodByDate.get(iso) ?? null;
-              return (
-                <Pressable
-                  key={iso}
-                  style={styles.cell}
-                  disabled={!mood}
-                  onPress={() => openEntry(iso)}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.cellDay}>{ymd(iso).d}</Text>
-                  {mood ? (
-                    <View style={styles.cellOrb}>
-                      <OrbMini size={7} color={moodColor(mood)} />
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            })}
+          <View style={styles.grid} testID="calendar-grid">
+            {weeks.map((week, weekIndex) => (
+              <View
+                key={`week-${weekIndex}`}
+                style={styles.weekRow}
+                testID={`calendar-week-${weekIndex}`}
+              >
+                {week.map((iso, i) => {
+                  if (!iso)
+                    return (
+                      <View
+                        key={`blank-${weekIndex}-${i}`}
+                        style={styles.cell}
+                        testID={`calendar-cell-blank-${weekIndex}-${i}`}
+                      />
+                    );
+                  const mood = moodByDate.get(iso) ?? null;
+                  return (
+                    <Pressable
+                      key={iso}
+                      style={styles.cell}
+                      testID={`calendar-cell-${iso}`}
+                      disabled={!mood}
+                      onPress={() => openEntry(iso)}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.cellDay}>{ymd(iso).d}</Text>
+                      {mood ? (
+                        <View style={styles.cellOrb}>
+                          <OrbMini size={7} color={moodColor(mood)} />
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
           </View>
 
           <View style={styles.legend}>
@@ -134,7 +178,12 @@ function WeeklyInsightCard({ hasEntries }: { hasEntries: boolean }) {
   }, [hasEntries, load]);
 
   // アンマウント時のみ false にする（上の effect は hasEntries 変化でも再実行されるため分ける）。
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   if (!hasEntries || failed) return null;
   if (loading && !insight) {
@@ -163,9 +212,22 @@ function WeeklyInsightCard({ hasEntries }: { hasEntries: boolean }) {
   );
 }
 
-function ToggleTab({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function ToggleTab({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: active }} style={[styles.toggleTab, active && styles.toggleTabOn]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      style={[styles.toggleTab, active && styles.toggleTabOn]}
+    >
       <Text style={[styles.toggleText, active && styles.toggleTextOn]}>{label}</Text>
     </Pressable>
   );
@@ -193,9 +255,7 @@ function ListView({
   const filtered = useMemo(() => {
     const q = query.trim();
     if (!q) return entries;
-    return entries.filter(
-      (e) => e.bodyText.includes(q) || e.words.some((w) => w.text.includes(q)),
-    );
+    return entries.filter((e) => e.bodyText.includes(q) || e.words.some((w) => w.text.includes(q)));
   }, [entries, query]);
 
   // 月ごとに区切る（entries は新しい順）。
@@ -228,10 +288,14 @@ function ListView({
       }
       ListEmptyComponent={
         hasHydrated ? (
-          <Text style={styles.empty}>{entries.length === 0 ? 'まだ日記がありません。' : '該当する日記がありません。'}</Text>
+          <Text style={styles.empty}>
+            {entries.length === 0 ? 'まだ日記がありません。' : '該当する日記がありません。'}
+          </Text>
         ) : null
       }
-      renderSectionHeader={({ section }) => <Text style={styles.monthDivider}>{section.title}</Text>}
+      renderSectionHeader={({ section }) => (
+        <Text style={styles.monthDivider}>{section.title}</Text>
+      )}
       renderItem={({ item }) => <EntryRow entry={item} onOpen={onOpen} />}
     />
   );
@@ -273,17 +337,35 @@ const styles = StyleSheet.create({
   headerPlain: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xs },
   appTitle: { fontFamily: fonts.display, fontSize: 15, color: colors.duskDeep },
   toggle: { flexDirection: 'row', gap: 6, marginTop: spacing.md },
-  toggleTab: { borderWidth: 1, borderColor: colors.line, borderRadius: 14, paddingVertical: 5, paddingHorizontal: 13 },
+  toggleTab: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 14,
+    paddingVertical: 5,
+    paddingHorizontal: 13,
+  },
   toggleTabOn: { backgroundColor: colors.dusk, borderColor: colors.dusk },
   toggleText: { fontFamily: fonts.uiRegular, fontSize: 10.5, color: colors.inkFaint },
   toggleTextOn: { color: '#ffffff' },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
-  monthLabel: { fontFamily: fonts.uiRegular, fontSize: 11, color: colors.inkFaint, marginBottom: spacing.md },
+  monthLabel: {
+    fontFamily: fonts.uiRegular,
+    fontSize: 11,
+    color: colors.inkFaint,
+    marginBottom: spacing.md,
+  },
   weekdayRow: { flexDirection: 'row', marginBottom: spacing.sm },
-  weekday: { flex: 1, textAlign: 'center', fontFamily: fonts.uiRegular, fontSize: 9.5, color: colors.inkFaint },
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
+  weekday: {
+    flex: 1,
+    textAlign: 'center',
+    fontFamily: fonts.uiRegular,
+    fontSize: 9.5,
+    color: colors.inkFaint,
+  },
+  grid: {},
+  weekRow: { flexDirection: 'row' },
   cell: {
-    width: `${100 / 7}%`,
+    flex: 1,
     aspectRatio: 1,
     padding: 3,
     alignItems: 'center',
@@ -326,13 +408,29 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
   },
-  listEntry: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.line },
+  listEntry: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
   listDate: { width: 32, alignItems: 'center' },
   listDay: { fontFamily: fonts.display, fontSize: 17, color: colors.ink },
   listDow: { fontFamily: fonts.uiRegular, fontSize: 9, color: colors.inkFaint, marginTop: 3 },
   listBody: { flex: 1, gap: 7 },
   listText: { fontFamily: fonts.display, fontSize: 12.5, lineHeight: 19, color: colors.ink },
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
-  tag: { fontFamily: fonts.uiRegular, fontSize: 9, color: colors.inkFaint, borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingVertical: 2, paddingHorizontal: 8 },
+  tag: {
+    fontFamily: fonts.uiRegular,
+    fontSize: 9,
+    color: colors.inkFaint,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+  },
   empty: { fontFamily: fonts.uiRegular, fontSize: 12, color: colors.inkFaint, lineHeight: 20 },
 });
