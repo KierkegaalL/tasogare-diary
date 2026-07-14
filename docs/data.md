@@ -15,6 +15,7 @@
 | **Cloud Functions（サーバ）** | Claude 仲介・集計・QR 照合・削除 | Claude API キーはここだけが保持（[constraints.md](../.claude/rules/constraints.md)） |
 
 > **原則**: 日記は極めてセンシティブ。全ドキュメントは本人（uid）のみアクセス可（第7章）。分析用の集計は最小限のフィールドに限定する。
+> **クライアントSDKと uid 空間**: `EXPO_PUBLIC_USE_NATIVE_FIREBASE=1` 環境では Auth/Firestore とも `@react-native-firebase` 経由になるが（[migration-react-native-firebase.md](migration-react-native-firebase.md)）、これは同一 Firebase プロジェクトの同一 uid 空間・同一コレクション構造を指す別クライアント実装に過ぎない。本章以降のスキーマ・セキュリティルールは JS SDK / ネイティブSDK いずれの経路でも共通で適用される。
 
 ---
 
