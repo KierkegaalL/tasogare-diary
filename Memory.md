@@ -186,11 +186,11 @@ tasogare-diary/
 
 **A. バグ・実装漏れ・整合性（真の残タスク、未着手）**
 
-*重大度 高*
-- [ ] `CLAUDE.md`「現在のフェーズ」節・ディレクトリ構成図が「ステップ1：ハーネス整備」のまま陳腐化（実際はPhase0〜4＋ネイティブFirebase移行Phase1〜7完了）。全面更新が必要
-- [ ] `visual-design.html`（UIの正として複数docsが参照）がリポジトリに一度もコミットされておらず、ローカル（iCloud）にのみ存在。再現不能。リポジトリへコミット推奨（例: `docs/design/visual-design.html`）
-- [ ] [docs/screen.md](docs/screen.md):11 画面一覧見出し「①〜⑬」が実際の`visual-design.html`の`.nav`（①〜⑪のみ）と不一致。⑫⑬はモックなしと注記が必要
-- [ ] [docs/design/basic-design.md](docs/design/basic-design.md) §3.1 画面一覧表に⑫（Web日記一覧）・⑬（スマホと連携）が欠落
+*重大度 高*（2026-07-14 対応完了・PR作成済み）
+- [x] `CLAUDE.md`「現在のフェーズ」節・ディレクトリ構成図が「ステップ1：ハーネス整備」のまま陳腐化（実際はPhase0〜4＋ネイティブFirebase移行Phase1〜7完了）。運用フェーズである旨・実際のディレクトリ構成（`worker/`/`web/`/`shared/`/`docs/design/`等）に全面更新した
+- [x] `visual-design.html`（UIの正として複数docsが参照）がリポジトリに一度もコミットされておらず、ローカル（iCloud）にのみ存在していた問題。ユーザーのiCloud Drive（TextEditドキュメント）から実体を取得し `docs/design/visual-design.html` としてコミットした
+- [x] [docs/screen.md](docs/screen.md) 画面一覧見出し「①〜⑬」が実際の`visual-design.html`の`.nav`（①〜⑪のみ）と不一致だった問題。⑨（旧「Webで見る(QR)」、2026-07-12改訂で⑧設定画面へ統合され廃止）を欠番として明記し、⑫⑬に「モックなし」の注記を追加した
+- [x] [docs/design/basic-design.md](docs/design/basic-design.md) §3.1 画面一覧表に⑫（Web日記一覧）・⑬（スマホと連携）が欠落していた問題。表に追加した
 
 *重大度 中*
 - [ ] オフライン判定（`useNetInfo().isConnected`）が画面間で不統一: `PreviewScreen.tsx`のみ`!== true`（判定中も安全側でオフライン扱い）、`WordsScreen.tsx`/`DetailScreen.tsx`/`SettingsScreen.tsx`（`QrPairingBody`）は`=== false`（判定中はオンライン扱い）。共通ヘルパーへ切り出し統一が必要

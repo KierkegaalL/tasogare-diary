@@ -111,7 +111,7 @@ graph TD
 ## 3. 画面構成・画面遷移概要
 
 ### 3.1 画面一覧
-`visual-design.html` の `.nav`（①〜⑪）を根拠とする。
+`visual-design.html` の `.nav`（①〜⑪）を根拠とする。ただし⑨「Webで見る(QR)」は2026-07-12改訂で⑧設定画面へ統合され廃止（[screen.md](../screen.md) 3.9節）。⑫⑬はPhase3/4の実装で追加した画面で、`visual-design.html` にはモックが無い（[screen.md](../screen.md) 0.1節）。
 
 | # | 画面 | 実装ID | 種別 | 主な要素（クラス） |
 |---|---|---|---|---|
@@ -125,6 +125,8 @@ graph TD
 | ⑧ | 設定（Web連携QR・バックアップ・アカウント削除を統合） | `settings` | モバイル | `.qr-card`/`.qr-pattern`、`.qr-timer-track`、`.ghost-btn`（Apple/Google）、`.settings-row`（アカウント削除） |
 | ⑩ | ダッシュボード（Web） | `dashboardView` | Web | `.dash-narrative`、`.mood-chart`、`.word-rank`、`.period-tabs` |
 | ⑪ | デバイスをつなぐ（Web） | `connectView` | Web | `.viewfinder`、`.connect-status`、`.ghost-btn`（Apple/Google） |
+| ⑫ | 日記一覧（Web・モックなし） | `entriesView` | Web | `.diary-entry`、検索欄、無限スクロール（[screen.md](../screen.md) 4.3節） |
+| ⑬ | スマホと連携（Expo Web専用・モックなし） | `webConnectGate` | モバイル（Web版のみ） | QRカメラ読取、コード貼り付け、Google/Appleサインイン（[screen.md](../screen.md) 3.10節） |
 
 ### 3.2 日記作成フロー（きもち→できごと→ことば→たしかめる→灯）
 **入力は4ステップ**（`visual-design.html` の `.step-progress` 4ドット）で、**保存後に「灯」の演出**で締める。灯は専用入力画面を持たず、保存完了時に「こころの灯」が灯りホームのオーブへ反映される（U-01 の統一決定）。
