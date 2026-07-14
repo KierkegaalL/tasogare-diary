@@ -1,6 +1,6 @@
 # Memory — たそがれ日記 プロジェクト引き継ぎドキュメント
 
-最終更新: 2026-07-14（**Firestoreオフライン永続化のネイティブ移行を実装中（Phase6まで完了）**。設計書[docs/migration-react-native-firebase.md](docs/migration-react-native-firebase.md)を7フェーズにTaskCreate分解。**Phase1＝PR #57・Phase2/2.5＝PR #56・Phase3-4＝PR #58・Phase5＝PR #59 はいずれもdevelopへマージ済み。Phase6（Firestoreネイティブリポジトリ実装＝`nativeFirestoreEntriesRepository.ts`/`nativeFirestoreMessagesRepository.ts`＋`repository/index.ts`分岐）＝PR #61（reviewer2回チェックで指摘0件・192テスト通過・**実機でのオフライン書込→復帰後自動同期の検証もユーザーが実施し成功**（iPhoneのWi-Fi設定でDNSを到達不能アドレス`192.0.2.1`へ手動設定し疑似オフライン状態を作る方式。アプリ生存のまま復帰／書込保留中にアプリを完全終了→復帰後再起動、の両シナリオとも成功）。マージはユーザーが実施予定）。詳細は下記「現時点で残っている実質的なタスク」1項**（config plugin配線・Worker `/migrateToNativeAuth`・`getIdToken`非依存化・ネイティブ匿名認証＋uid継続の移行ブリッジ）。**最重要項目の既存uid継続 実機検証（§8）はユーザーが実機（Xcode Run＋開発ビルド）で完了・成功**（移行ブリッジ実行時・移行済みフラグでの2回目起動時いずれもuid・Firestoreデータ維持を確認）。**Phase5（`nativeFirebaseAuthProvider`/`nativeFirebaseAuthProviderInstall`へのApple/Googleリンク昇格実装）= PR #59（マージ前最終レビューで指摘0件・base develop）**（実装過程で計3回のreviewerチェックを実施: ①順序バグ＝ネイティブのサインインUIを起動する前にセッション有無・匿名判定を行うべき不具合を修正（`NativeAuthBinding`に同期の`getCurrentUser()`を追加）②マージ前最終レビューで**Apple向け`OAuthProvider.credential()`の引数形式が実際のランタイム実装と不一致という重大バグを発見・修正**（`@react-native-firebase/auth`の型定義は位置引数`(token,secret)`を宣言しているが実装はオブジェクト引数`{idToken,rawNonce}`を要求。型定義側が不正確で`tsc`で検出できず、位置引数のままだとAppleサインインの資格情報が空になっていた。正しい型のローカルinterfaceへキャストして呼ぶよう修正し回帰テスト追加）③`isAnonymous`判定のfail-safe化・docs追記。最終191テスト通過・指摘0件でマージ可能）。**Google連携の実機検証中、`GoogleService-Info.plist`を`ios/`直下（誤り）に置いていたため`expo prebuild`でXcodeプロジェクトへ未登録のままとなり、`@react-native-firebase/app`のネイティブ初期化が失敗→`authStore`が気づかず`localAuthProvider`へ静かにフォールバックし「Googleと連携」ボタンが出ない不具合が発生**。原因特定のため一時的な診断ログで追跡し、リポジトリルート直下への配置＋`npx expo prebuild --clean --platform ios`＋`pod install`で解消（詳細は[environments.md](.claude/rules/environments.md)の「既知の詰まりどころ」に追記済み）。調査時に発見した2件のsilentフォールバック（`GoogleSignin.configure`失敗・`authStore.initialize`のFirebaseプロバイダ失敗）は診断ログを恒久化済み。解消後、Googleとの連携が実機で成功（Firebase Console上でuid維持のままProviderに「Google」追加を確認、再起動後もGoogleアカウント紐づきのまま復元）。**さらに、連携済みでも「Googleと連携」ボタンが再表示される別の不具合を発見・修正**（`useLinkableAccountKinds`が`user.provider`＝`toAuthUser()`設計により常に`'anonymous'`固定文字列で判定していたための誤り。`isAnonymous`で判定するよう修正、回帰テスト追加。190テスト通過）。**カレンダー月表示で日曜日の欄に日付が表示されない不具合**もユーザーが発見、[Issue #60](https://github.com/KierkegaalL/tasogare-diary/issues/60)として起票済み（Phase5とは無関係のためこのブランチでは対応せず、別途対応予定）。Apple実機検証は有料Apple Developer Program未加入のため保留。以下は前回までの記録↓。それ以前の主な作業: モバイルのExpo Web版（`npx expo start --web`）に連携ゲート（QRカメラ読取／コード貼り付け／Googleサインイン／ゲスト利用）と設定画面の連携/ログアウト行を実装し`develop`へマージ（PR #53）。実装当初は誤って別プロジェクト`web/`側に作ってしまい、ユーザー指摘で`git reset --hard`により破棄→`src/`側に作り直した経緯あり。マージ後さらにユーザーから見た目修正指摘（web-dashboardの`/connect`と同じ白枠カードにする／連携・ログアウト行を「アカウントを削除する」と同じ見た目・位置にする）を受け追加コミット。その過程でreviewerチェック用に書いたテストが実際に連打防止バグ（`useState`のstale closureで連打時に`requestWebConnect`が二重発火）を検出→`useRef`での同期ガードに修正。並行してWeb単独機能として別途進めていたPR #52（Web `/entries`側の設定画面新設）は、**不要な機能だったためユーザーによりクローズ済み**（再着手不要）。続けて、Firestoreオフライン永続化のネイティブ移行（`@react-native-firebase`）についてユーザーへスコープ確認（①まず設計のみ ②ネイティブ設定ファイルはユーザーがConsoleから取得）のうえ、[docs/migration-react-native-firebase.md](docs/migration-react-native-firebase.md) を新規作成した経緯あり）
+最終更新: 2026-07-14（**Firestoreネイティブ移行（全7フェーズ）・[Issue #60](https://github.com/KierkegaalL/tasogare-diary/issues/60)（カレンダー日曜日欠落）修正・低優先度3件（QRスキャナ共通化/AccountLinkSection連打防止/basic-design.md 3クライアント構成）・週別感情推移グラフの実データ確認、いずれも完了済み（PR #56〜#65、develop反映済み）**。過去の実装経緯・不具合発見の詳細は下記「現時点で残っている実質的なタスク」1〜4項を参照。**本日、上記が一区切りついたチェックポイントでユーザー依頼によりプロジェクト全体（`src/`／`worker`+`web`／ドキュメント整合性）をreviewerサブエージェント3並行起動で棚卸しし、下記「2026-07-14 全体レビュー」節に残タスクを整理（Aバケット=バグ・実装漏れ・整合性の真の残タスク23件／Bバケット=コスト回避・Apple Developer Program関連の既知の制約、ユーザー指示によりAとは別枠管理・対応不要）**）
 
 > このファイルは ClaudeCode がセッションをまたいで状況を引き継ぐための**状況記録ドキュメント**。ルール本体（振る舞いの指示）は [CLAUDE.md](CLAUDE.md) と `.claude/rules/` を正とし、本ファイルはそれらを前提にした**現在地のスナップショット**を保持する。矛盾があれば CLAUDE.md / `.claude/rules/` が優先。
 >
@@ -179,3 +179,46 @@ tasogare-diary/
    - `docs/design/basic-design.md`をモバイル(ネイティブ)／モバイルのExpo Webビルド（`WebConnectGate`のみ追加）／Webダッシュボード（別プロジェクト`web/`・閲覧専用）の3クライアント構成に更新（第2.1/2.2/2.3節）。
    - **reviewerチェックで4件指摘**: ①②`architecture.md`への章番号参照ミス（実際はWebConnectGateの記述は第4.2節。第7章はオフライン同期の話で無関係）を修正、③`shared/qrScan.ts`のprettier未整形行を修正、④無関係な未コミット変更（`.gitignore`/`package.json`/`package-lock.json`/`wrangler.jsonc`）の混入注意→従来通りコミットから除外。
 4. **✅ [Issue #60](https://github.com/KierkegaalL/tasogare-diary/issues/60) カレンダー月表示で日曜日の欄に日付が表示されない = 修正済み（[PR #63](https://github.com/KierkegaalL/tasogare-diary/pull/63)・`fix/calendar-sunday-cell`・base develop・reviewer2回チェックで指摘なし・マージはユーザーが実施予定）**: 原因は`CalendarScreen.tsx`のグリッドが`monthGrid()`のフラットな結果を単一`View`（`flexDirection:'row', flexWrap:'wrap'`）にmapし、各セル幅を`width:'${100/7}%'`という循環小数％で指定していたこと。Yogaのピクセル丸め誤差により7列の合計幅がコンテナ幅をわずかに超過し、7列目（月曜始まりのため日曜列）が次行へ折り返される（iOS実機のみ発生・Android/expo-webでは非発生という報告と整合）。修正は`monthGrid()`の結果を週（7要素・最終週は`null`パディング）ごとにチャンクし、各週を`flexWrap`非依存の明示的な行として描画する構造に変更、`cell`幅も`flex:1`へ統一（`monthGrid()`自体は無変更）。新規回帰テスト`CalendarGrid.test.tsx`（システム時刻を2026年5月に固定し月内の全日曜日3,10,17,24,31が週行の7番目に欠けず描画されることを検証）を追加。**reviewer1回目チェックでテストの日付事実誤認（2026-08-01/31を日曜と誤認していたが実際は土曜/月曜）を発見・修正**（2026年5月の実際の日曜日ベースへ全面書き直し）。
+
+### 2026-07-14 全体レビュー（reviewer 3並行起動: モバイルsrc/・worker+web・ドキュメント全体整合）で発見した残タスク
+
+> 従来の残タスクが全て完了したチェックポイントで、ユーザー依頼によりプロジェクト全体（`develop`最新・PR #65まで反映済み）の不具合・実装漏れ・整合性を棚卸しした。ユーザー指示により、コスト回避・Apple Developer Program関連は別枠（Bバケット）に分離し、Aバケット（真の残タスク）には含めない。
+
+**A. バグ・実装漏れ・整合性（真の残タスク、未着手）**
+
+*重大度 高*
+- [ ] `CLAUDE.md`「現在のフェーズ」節・ディレクトリ構成図が「ステップ1：ハーネス整備」のまま陳腐化（実際はPhase0〜4＋ネイティブFirebase移行Phase1〜7完了）。全面更新が必要
+- [ ] `visual-design.html`（UIの正として複数docsが参照）がリポジトリに一度もコミットされておらず、ローカル（iCloud）にのみ存在。再現不能。リポジトリへコミット推奨（例: `docs/design/visual-design.html`）
+- [ ] [docs/screen.md](docs/screen.md):11 画面一覧見出し「①〜⑬」が実際の`visual-design.html`の`.nav`（①〜⑪のみ）と不一致。⑫⑬はモックなしと注記が必要
+- [ ] [docs/design/basic-design.md](docs/design/basic-design.md) §3.1 画面一覧表に⑫（Web日記一覧）・⑬（スマホと連携）が欠落
+
+*重大度 中*
+- [ ] オフライン判定（`useNetInfo().isConnected`）が画面間で不統一: `PreviewScreen.tsx`のみ`!== true`（判定中も安全側でオフライン扱い）、`WordsScreen.tsx`/`DetailScreen.tsx`/`SettingsScreen.tsx`（`QrPairingBody`）は`=== false`（判定中はオンライン扱い）。共通ヘルパーへ切り出し統一が必要
+- [ ] `firestoreEntriesRepository.ts`/`nativeFirestoreEntriesRepository.ts`/`firestoreMessagesRepository.ts`/`nativeFirestoreMessagesRepository.ts`の`onSnapshot`エラーハンドラが`error.message`を素通しログ（uidを含むパスが漏れうる。`PreviewScreen.tsx`は既に`code`のみログする対策済みなのに横展開されていない）
+- [ ] Firestore/ネイティブFirestoreリポジトリの1日1件（U-11）担保upsertロジックに単体テストが皆無（`getDocs`/`setDoc`モックでの回帰テストが必要）
+- [ ] `worker/src/cron.ts`:17-31 `CRON_MAX_USERS`（既定20）の設計が、Cloudflare Workers無料枠のサブリクエスト上限（呼び出し全体で50）を実際には超過する計算ミス（既定設定で最大160）。事前生成が一部ユーザーで静かに失敗している可能性
+- [ ] [docs/data.md](docs/data.md) §6の`pairings`セキュリティルールのサンプルコードが古い設計（クライアントcreate許可）のまま、実際は`firestore.rules`で全面拒否に変更済み。サンプル更新が必要
+- [ ] [.claude/rules/environments.md](.claude/rules/environments.md) のdev/staging/prod Firebase環境分離の記述が実態（単一プロジェクト`tasogare-diary-project`のみ運用、`wrangler.jsonc`の`env.staging`/`env.prod`は未有効化のコメントアウトのまま）と乖離。実態の明記が必要
+- [ ] `worker/src/index.ts`（`handleSuggestWords`/`handleGenerateDiary`/`handleAdjustDiary`/`handleChat`）に文字列・配列長の上限検証が無く、任意長の入力をそのままGeminiへ転送可能
+- [ ] リポジトリ直下（未追跡）`wrangler.jsonc`＋`package.json`の`deploy`/`preview`スクリプトが、どのdocsにも説明の無いまま複数PR（Phase6・`chore/qr-scanner-dedup-and-cleanup`）で「無関係な変更」として除外され続けている残骸の可能性。意図があればdocs追記の上でコミット、無ければ破棄をユーザーに確認したい
+
+*重大度 低*
+- [ ] `worker/README.md`「アカウント削除UI未実装」記述が陳腐化（実装済み）
+- [ ] `src/services/account.ts`のコメントが「未実装」のまま陳腐化
+- [ ] `WordsScreen.tsx`/`nativeFirebaseFlag.ts`のコメントが陳腐化（「モック」「将来」表現）
+- [ ] `draftStore`の`moodLevel`/`setMoodLevel`がデッドコード（どの画面からも呼ばれていない）
+- [ ] `DetailScreen`の非同期チャット処理（`runOpening`/`chatMutation`のonSuccess/onError）にアンマウントガードが無い（`PreviewScreen`の`isMountedRef`パターンとの不統一）
+- [ ] worker側で`history`のサーバ側切り詰めが無い（クライアント任せの多層防御不足）
+- [ ] `generateInsight`の同時リクエストで重複生成が起きうる（実害小・LLM呼び出しの無駄のみ）
+- [ ] `pairing.ts`: `mintCustomToken`失敗時、既に消費済みトークンのため再試行不可になる（失効時と同じ体験になり切り分けづらい）
+- [ ] `docs/screen.md`の`.dash-sidebar`記述がWeb実装（ヘッダーのみ、サイドバー無し）と不一致
+- [ ] `.claude/rules/features.md`のPhase定義表が粒度として古い（ネイティブFirebase移行等のサブフェーズ未反映）
+- [ ] マージ済みローカルブランチ37本の残存（任意のgit hygiene。`git-workflow.md`にマージ後削除の一文追記も検討）
+
+*テストカバレッジ（参考）*: `web/`はテストランナー自体が無く、QRスキャナ・無限スクロール・タブ切替の世代ガード・Google OAuthポップアップ・`period.ts`のタイムゾーン依存計算等は手動確認のみで担保されている。
+
+**B. コスト回避・Apple Developer Program関連（意図的な既知の制約。バグではない・ユーザー指示によりAとは別枠管理）**
+- Firebase Sparkプラン維持のためCloud Functions不採用、Cloudflare Workers経由（`worker/`）
+- Claude API → Google Gemini APIへ変更（無料枠運用、U-12）。将来アプリが軌道に乗る／AI能力に不満が出た場合は有料APIへ戻す可能性あり（`worker/src/llm/`にプロバイダ抽象化済み）
+- Gemini無料枠のRPD制限（`gemini-3.5-flash`等）により、モデルを一時的に切り替える運用が今後も発生しうる（実績: Phase3-4実機検証中に発生・完了後に元へ戻し済み）
+- Apple Developer Program（有料）未加入のため: Apple実機検証が未実施（Googleのみ検証済み）／Web版のAppleサインインボタンが無効化されたまま（`web/src/app/connect/page.tsx`）／`EXPO_PUBLIC_APPLE_SIGNIN_ENABLED`フラグが既定オフ
