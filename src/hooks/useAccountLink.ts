@@ -16,6 +16,9 @@ const LINK_KINDS: AccountLinkKind[] = ['apple', 'google'];
 // 実体は isAnonymous（SettingsScreen の WebAccountRow 等が既に使っている判定軸）で見る必要がある。
 export function useLinkableAccountKinds(): AccountLinkKind[] {
   const user = useAuthStore((s) => s.user);
-  if (!user || user.isAnonymous === false) return [];
+  // fail-safe: isAnonymous が明示的に true の場合のみ導線を出す（未設定の AuthProvider 実装が将来
+  // 追加された場合に誤って導線を出してしまわないよう、"false でなければ表示" ではなく "true のときだけ
+  // 表示" にする。reviewer指摘）。
+  if (!user || user.isAnonymous !== true) return [];
   return LINK_KINDS.filter((k) => canLinkAccount(k));
 }
