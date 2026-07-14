@@ -20,17 +20,24 @@ import { DAY_MS, pad2 } from './dateUtils';
 //   日記本文・個人情報は読まない（constraints.md）。
 // - Cloudflare Workers はフリープランで「1呼び出しあたりサブリクエスト50」の上限がある。
 //   1件の generateInsight は最悪 getInsight+queryEntries+LLM+saveInsight ≒ 4 サブリクエスト。
-//   そのため1回の cron で処理するユーザー数を CRON_MAX_USERS（既定20）で制限し、
+//   そのため CRON_MAX_USERS（既定20）はあくまで「設定できる上限」であり、実際に処理する
+//   ユーザー数は SUBREQUEST_BUDGET を超えないよう types.length に応じて動的に切り詰める
+//   （safeMaxUsers。既定の20×2タイプ×4だと160になり無料枠を超過していた計算ミスを修正）。
 //   生成対象タイプも既定を weekly/monthly の2種に絞る（quarterly は範囲が広く高コストのため
 //   既定ではオンデマンドのまま。CRON_INSIGHT_TYPES で追加可能）。
 // - スケール時（配布・ユーザー増）は有料プラン（サブリクエスト1000）＋ページング前提の
-//   バッチ分割へ拡張する。本実装は CRON_MAX_USERS / CRON_INSIGHT_TYPES で調整できる。
+//   バッチ分割へ拡張する。本実装は CRON_MAX_USERS / CRON_INSIGHT_TYPES / SUBREQUEST_BUDGET で調整できる。
 //   なお listUserIds は __name__ 昇順の先頭から上限件を返すだけで日替わりローテーションは無いため、
 //   ユーザー数が上限を超えると超過分は常に事前生成されない（表示時オンデマンドで生成される）。
 
 const DEFAULT_MAX_USERS = 20;
 const DEFAULT_TYPES: readonly InsightType[] = ['weekly', 'monthly'] as const;
 const ALL_TYPES: readonly InsightType[] = ['weekly', 'monthly', 'quarterly'] as const;
+
+// Cloudflare Workers 無料枠の「1呼び出しあたりサブリクエスト50」に対して安全マージンを残す想定値。
+const SUBREQUEST_BUDGET = 45;
+// 1件の generateInsight あたりの想定サブリクエスト数（getInsight+queryEntries+LLM+saveInsight）。
+const SUBREQUESTS_PER_INSIGHT = 4;
 
 // entries.date は端末ローカル日付（日本向けのため JST 前提。src/utils/date.ts の todayISO）。
 // periodKey もクライアントが計算するのと同じ JST の壁時計で算出する必要がある。UTC のまま
@@ -76,6 +83,13 @@ function parseMaxUsers(raw: string | undefined): number {
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : DEFAULT_MAX_USERS;
 }
 
+// CRON_MAX_USERS（設定値/既定値）を、実際に生成するタイプ数でのサブリクエスト予算内に
+// 収まるよう切り詰める。typesCount が多いほど、安全に処理できるユーザー数は少なくなる。
+export function safeMaxUsers(configuredMaxUsers: number, typesCount: number): number {
+  const cap = Math.max(1, Math.floor(SUBREQUEST_BUDGET / (typesCount * SUBREQUESTS_PER_INSIGHT)));
+  return Math.min(configuredMaxUsers, cap);
+}
+
 export interface CronResult {
   users: number; // 列挙できたユーザー数
   generated: number; // 生成（または鮮度キャッシュ流用）した (user, type) 件数
@@ -89,8 +103,8 @@ export async function handleScheduled(env: Env, scheduledTime: number): Promise<
   // JST の壁時計で「現在期間」を決める（JST_OFFSET_MS のコメント参照）。以降 currentPeriodKey は
   // getUTC* を使うため、JST ぶんずらした Date に対して呼ぶことで JST の暦日を読み出せる。
   const at = new Date(scheduledTime + JST_OFFSET_MS);
-  const maxUsers = parseMaxUsers(env.CRON_MAX_USERS);
   const types = parseInsightTypes(env.CRON_INSIGHT_TYPES);
+  const maxUsers = safeMaxUsers(parseMaxUsers(env.CRON_MAX_USERS), types.length);
 
   const uids = await listUserIds(env, maxUsers);
   const result: CronResult = { users: uids.length, generated: 0, skippedNoEntries: 0, errors: 0 };

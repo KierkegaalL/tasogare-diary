@@ -2,21 +2,26 @@
 
 > 実際の値（プロジェクトID、URL、キー）はステップ4で確定する。シークレットはリポジトリにコミットせず、`.env`（gitignore）/ EAS Secrets / Functions config で管理すること。
 
-## 環境一覧
+## 環境一覧（実態・2026-07-14現在）
+
+**実際に稼働しているFirebaseプロジェクトは`tasogare-diary-project`の1つのみ**（`web/.env.local`・`worker/wrangler.jsonc`の`vars.FIREBASE_PROJECT_ID`で確認）。dev/staging/prodの環境分離は行っていない。ローカル開発も本番相当のこの1プロジェクトに対して行う。
+
+`.firebaserc`には`staging`/`prod`のプロジェクトエイリアス（`tasogare-diary-staging`/`tasogare-diary-prod`）が定義されているが、**対応するFirebaseプロジェクト自体が作成されておらず未使用**。同様に`worker/wrangler.jsonc`の`env.staging`はコメントアウトされたサンプルのままで有効化されていない。将来、実際に環境分離が必要になった時点で、これらの雛形を使って個別プロジェクトを作成する想定（下表はその際の設計イメージ。実在するものではない）。
 
 | 環境 | 用途 | Firebase プロジェクト | AI API |
 |---|---|---|---|
-| `dev` | ローカル開発 | `tasogare-diary-dev`（想定） | dev キー |
-| `staging` | 検証・社内配布 | `tasogare-diary-staging`（想定） | staging キー |
-| `prod` | 本番 | `tasogare-diary-prod`（想定） | prod キー |
+| （実態） | 開発・検証・本番すべて | `tasogare-diary-project`（実在・唯一稼働中） | Gemini 無料枠キー（共通） |
+| `dev`（将来案） | ローカル開発 | `tasogare-diary-dev`（未作成・想定） | dev キー |
+| `staging`（将来案） | 検証・社内配布 | `tasogare-diary-staging`（`.firebaserc`にエイリアスのみ存在・未作成） | staging キー |
+| `prod`（将来案） | 本番 | `tasogare-diary-prod`（`.firebaserc`にエイリアスのみ存在・未作成） | prod キー |
 
-## API ベース URL（想定）
+## API ベース URL（実態＋想定）
 
-| 種別 | dev | staging | prod |
+| 種別 | 実態（単一プロジェクト） | staging（将来案・未構築） | prod（将来案・未構築） |
 |---|---|---|---|
-| AI 連携プロキシ（Cloudflare Worker） | `http://localhost:8787`（`wrangler dev`） | `https://tasogare-diary-claude-proxy-staging.<subdomain>.workers.dev`（想定） | `https://tasogare-diary-claude-proxy.<subdomain>.workers.dev`（想定） |
+| AI 連携プロキシ（Cloudflare Worker） | `http://localhost:8787`（`wrangler dev`）／本番デプロイ済みURL | `https://tasogare-diary-claude-proxy-staging.<subdomain>.workers.dev`（想定） | `https://tasogare-diary-claude-proxy.<subdomain>.workers.dev`（想定） |
 | Gemini API | `https://generativelanguage.googleapis.com`（Worker 経由で呼び出し。クライアントから直叩きしない） | 同左 | 同左 |
-| Web ダッシュボード（Firebase Hosting） | `http://localhost:3000`（Next.js dev） | `https://staging.tasogare-diary.app`（想定） | `https://tasogare-diary.app`（想定） |
+| Web ダッシュボード（Firebase Hosting） | `http://localhost:3000`（Next.js dev）／本番デプロイ済みURL | `https://staging.tasogare-diary.app`（想定） | `https://tasogare-diary.app`（想定） |
 
 > **重要**: AI API キーはクライアントに埋め込まず、必ずサーバ側プロキシ（Cloudflare Worker）経由で呼び出す（[constraints.md](constraints.md) のプライバシー方針参照）。
 

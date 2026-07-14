@@ -96,6 +96,35 @@ describe('handleChat の文脈補完', () => {
   });
 });
 
+// 入力サイズの上限検証（LLMへ任意長の入力をそのまま転送しない防御）。
+describe('handleChat の入力バリデーション', () => {
+  beforeEach(() => {
+    mockGetEntry.mockReset();
+    mockQueryEntriesByDateRange.mockReset();
+    mockQueryEntriesByDateRange.mockResolvedValue([]);
+  });
+
+  it('message が上限文字数を超えると invalid-argument', async () => {
+    await expect(
+      handleChat(ENV, llmStub(), 'u1', { message: 'x'.repeat(2001), history: [] }),
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
+  });
+
+  it('history が上限件数を超えると invalid-argument', async () => {
+    const history = Array.from({ length: 51 }, () => ({ role: 'me', text: 'hi' }));
+    await expect(handleChat(ENV, llmStub(), 'u1', { message: 'm', history })).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+  });
+
+  it('history の1件が上限文字数を超えると invalid-argument', async () => {
+    const history = [{ role: 'me', text: 'x'.repeat(2001) }];
+    await expect(handleChat(ENV, llmStub(), 'u1', { message: 'm', history })).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+  });
+});
+
 // 関連する過去エントリの「要約」補完（api-contract.md 3.4 備考・第10章）。
 // 当該エントリの日付を起点に直近14日（当日を含まない）の集計値（気分割合・頻出語）のみを
 // system プロンプトへ付与する。本文は一切含めない（最小送信の原則、第8章）。

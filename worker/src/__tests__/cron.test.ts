@@ -13,7 +13,7 @@ vi.mock('../llm', async (orig) => ({
   getLlmProvider: vi.fn(),
 }));
 
-import { currentPeriodKey, parseInsightTypes, handleScheduled } from '../cron';
+import { currentPeriodKey, parseInsightTypes, safeMaxUsers, handleScheduled } from '../cron';
 import { periodRange } from '../insight';
 import { handleGenerateInsight } from '../insight';
 import { listUserIds } from '../firestore';
@@ -71,6 +71,27 @@ describe('parseInsightTypes', () => {
 
   it('有効値が1つも無ければ既定に戻す', () => {
     expect(parseInsightTypes('bogus,,x')).toEqual(['weekly', 'monthly']);
+  });
+});
+
+describe('safeMaxUsers', () => {
+  it('既定設定（20ユーザー×既定2タイプ）はCloudflare無料枠のサブリクエスト上限50を超えない', () => {
+    const users = safeMaxUsers(20, 2);
+    expect(users * 2 * 4).toBeLessThanOrEqual(50);
+  });
+
+  it('設定値が安全上限より小さい場合は設定値をそのまま使う', () => {
+    expect(safeMaxUsers(3, 1)).toBe(3);
+  });
+
+  it('タイプ数が多いほど安全な処理ユーザー数は減る', () => {
+    const forOneType = safeMaxUsers(100, 1);
+    const forThreeTypes = safeMaxUsers(100, 3);
+    expect(forThreeTypes).toBeLessThan(forOneType);
+  });
+
+  it('最低でも1ユーザー分は確保する', () => {
+    expect(safeMaxUsers(100, 100)).toBeGreaterThanOrEqual(1);
   });
 });
 

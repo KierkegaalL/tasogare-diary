@@ -28,7 +28,10 @@ export const nativeFirestoreMessagesRepository: MessagesRepository = {
     return onSnapshot(
       q,
       (snap) => onChange(snap.docs.map((d) => fromDoc(d.id, d.data()))),
-      (error) => console.warn('[native firestore] messages subscribe error:', error.message),
+      // @react-native-firebase の FirestoreError 型定義は Error のエイリアスで code を持たないが、
+      // 実行時のネイティブエラーは他プロバイダ同様 code を持つ（PreviewScreen.tsx と同じキャスト）。
+      (error) =>
+        console.warn('[native firestore] messages subscribe error:', (error as { code?: string }).code),
     );
   },
   async add(uid, entryId, message) {

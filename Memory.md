@@ -192,15 +192,15 @@ tasogare-diary/
 - [x] [docs/screen.md](docs/screen.md) 画面一覧見出し「①〜⑬」が実際の`visual-design.html`の`.nav`（①〜⑪のみ）と不一致だった問題。⑨（旧「Webで見る(QR)」、2026-07-12改訂で⑧設定画面へ統合され廃止）を欠番として明記し、⑫⑬に「モックなし」の注記を追加した
 - [x] [docs/design/basic-design.md](docs/design/basic-design.md) §3.1 画面一覧表に⑫（Web日記一覧）・⑬（スマホと連携）が欠落していた問題。表に追加した
 
-*重大度 中*
-- [ ] オフライン判定（`useNetInfo().isConnected`）が画面間で不統一: `PreviewScreen.tsx`のみ`!== true`（判定中も安全側でオフライン扱い）、`WordsScreen.tsx`/`DetailScreen.tsx`/`SettingsScreen.tsx`（`QrPairingBody`）は`=== false`（判定中はオンライン扱い）。共通ヘルパーへ切り出し統一が必要
-- [ ] `firestoreEntriesRepository.ts`/`nativeFirestoreEntriesRepository.ts`/`firestoreMessagesRepository.ts`/`nativeFirestoreMessagesRepository.ts`の`onSnapshot`エラーハンドラが`error.message`を素通しログ（uidを含むパスが漏れうる。`PreviewScreen.tsx`は既に`code`のみログする対策済みなのに横展開されていない）
-- [ ] Firestore/ネイティブFirestoreリポジトリの1日1件（U-11）担保upsertロジックに単体テストが皆無（`getDocs`/`setDoc`モックでの回帰テストが必要）
-- [ ] `worker/src/cron.ts`:17-31 `CRON_MAX_USERS`（既定20）の設計が、Cloudflare Workers無料枠のサブリクエスト上限（呼び出し全体で50）を実際には超過する計算ミス（既定設定で最大160）。事前生成が一部ユーザーで静かに失敗している可能性
-- [ ] [docs/data.md](docs/data.md) §6の`pairings`セキュリティルールのサンプルコードが古い設計（クライアントcreate許可）のまま、実際は`firestore.rules`で全面拒否に変更済み。サンプル更新が必要
-- [ ] [.claude/rules/environments.md](.claude/rules/environments.md) のdev/staging/prod Firebase環境分離の記述が実態（単一プロジェクト`tasogare-diary-project`のみ運用、`wrangler.jsonc`の`env.staging`/`env.prod`は未有効化のコメントアウトのまま）と乖離。実態の明記が必要
-- [ ] `worker/src/index.ts`（`handleSuggestWords`/`handleGenerateDiary`/`handleAdjustDiary`/`handleChat`）に文字列・配列長の上限検証が無く、任意長の入力をそのままGeminiへ転送可能
-- [ ] リポジトリ直下（未追跡）`wrangler.jsonc`＋`package.json`の`deploy`/`preview`スクリプトが、どのdocsにも説明の無いまま複数PR（Phase6・`chore/qr-scanner-dedup-and-cleanup`）で「無関係な変更」として除外され続けている残骸の可能性。意図があればdocs追記の上でコミット、無ければ破棄をユーザーに確認したい
+*重大度 中*（2026-07-14 対応完了・PR作成済み）
+- [x] オフライン判定（`useNetInfo().isConnected`）が画面間で不統一だった問題。新規`src/hooks/useIsOffline.ts`（`isConnected !== true`＝判定中も安全側でオフライン扱い）へ統一し、`PreviewScreen.tsx`/`WordsScreen.tsx`/`DetailScreen.tsx`/`SettingsScreen.tsx`すべてから使うよう変更した
+- [x] `firestoreEntriesRepository.ts`/`nativeFirestoreEntriesRepository.ts`/`firestoreMessagesRepository.ts`/`nativeFirestoreMessagesRepository.ts`の`onSnapshot`エラーハンドラが`error.message`を素通しログしていた問題。`error.code`のみログするよう修正（ネイティブ版は型上`code`を持たないため`(error as {code?:string})`でキャスト）
+- [x] Firestore/ネイティブFirestoreリポジトリの1日1件（U-11）担保upsertロジックに単体テストが皆無だった問題。`firestoreEntriesRepository.test.ts`/`nativeFirestoreEntriesRepository.test.ts`を新規作成（新規作成/既存上書き/createdAtフォールバックの3パターン）
+- [x] `worker/src/cron.ts`の`CRON_MAX_USERS`（既定20）×types×4サブリクエストが無料枠50を超過する計算ミスだった問題。`safeMaxUsers(configuredMaxUsers, typesCount)`を追加し、サブリクエスト予算（45）内へ動的に切り詰めるよう修正（既定設定では実質5ユーザー/回）
+- [x] [docs/data.md](docs/data.md) §6の`pairings`セキュリティルールのサンプルコードが古い設計のままだった問題。実際の`firestore.rules`と完全一致するよう更新（コメント含め全文一致を確認済み）
+- [x] [.claude/rules/environments.md](.claude/rules/environments.md) のdev/staging/prod Firebase環境分離の記述が実態と乖離していた問題。単一プロジェクト`tasogare-diary-project`のみ運用の実態を明記し、dev/staging/prodは「将来案・未構築」と明確に区別した
+- [x] `worker/src/index.ts`（`handleSuggestWords`/`handleGenerateDiary`/`handleAdjustDiary`/`handleChat`/`handleChatOpening`）に文字列・配列長の上限検証が無かった問題。`MAX_TEXT_LENGTH`等の上限定数と`asStringArray`/`requireString`/`optionalString`/`assertMaxItemTextLength`ヘルパーで各フィールドを検証するよう追加
+- [x] リポジトリ直下の`wrangler.jsonc`＋関連`package.json`スクリプトの残骸。ユーザー確認の結果「破棄する」を選択し、`.gitignore`/`package.json`/`package-lock.json`を元に戻し`wrangler.jsonc`を削除して解消済み
 
 *重大度 低*
 - [ ] `worker/README.md`「アカウント削除UI未実装」記述が陳腐化（実装済み）
