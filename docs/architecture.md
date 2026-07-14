@@ -240,8 +240,8 @@ sequenceDiagram
   end
 ```
 - 入力途中はネット不要（`draftStore`）。Claude を要する処理（連想・生成・対話・まとめ）はネット必須で、オフライン時は明示（`constraints.md`）。
-- **データ永続はリポジトリ層で抽象化**（`services/repository`）。Firebase 未設定時はローカル（AsyncStorage）、設定時は Firestore（`users/{uid}/entries`）に切り替わる。
-- **Firestore のオフライン永続（RN 制約）**: Firebase JS SDK は RN で IndexedDB を使えず**メモリキャッシュ中心**（`experimentalForceLongPolling` を有効化）。永続化されたローカルキューを持たないため、**オフライン中に発行した書込 Promise はオンライン復帰までハングする**（アプリの生存中はメモリ上の書込は再送されるが、プロセスが終了すれば失われる）。`constraints.md` が求める本格的なオフライン永続は、必要になった段階で **`@react-native-firebase`（ネイティブ）** への移行で対応する（残タスク。移行計画は [migration-react-native-firebase.md](migration-react-native-firebase.md) に設計済み＝未着手。Firestoreのみでなく Auth も対象になる理由・既存匿名ユーザーの uid 継続方法まで含めて記載）。
+- **データ永続はリポジトリ層で抽象化**（`services/repository`）。Firebase 未設定時はローカル（AsyncStorage）、設定時は Firestore（`users/{uid}/entries`）に切り替わる。`EXPO_PUBLIC_USE_NATIVE_FIREBASE=1`（ネイティブFirebase移行フラグ）有効時は、上記の代わりに `nativeFirestoreEntriesRepository`/`nativeFirestoreMessagesRepository`（`@react-native-firebase/firestore`）が使われる（詳細は [migration-react-native-firebase.md](migration-react-native-firebase.md) フェーズ6）。
+- **Firestore のオフライン永続（RN 制約・JS SDK 経路）**: Firebase JS SDK は RN で IndexedDB を使えず**メモリキャッシュ中心**（`experimentalForceLongPolling` を有効化）。永続化されたローカルキューを持たないため、**オフライン中に発行した書込 Promise はオンライン復帰までハングする**（アプリの生存中はメモリ上の書込は再送されるが、プロセスが終了すれば失われる）。`constraints.md` が求める本格的なオフライン永続は、`@react-native-firebase`（ネイティブ）への移行で対応する（実装・実機検証とも完了・[migration-react-native-firebase.md](migration-react-native-firebase.md) フェーズ6。ネイティブSDKは既定でローカル永続キューを持つため、`EXPO_PUBLIC_USE_NATIVE_FIREBASE=1` 環境ではオフライン中の書込もキューされ、アプリを完全終了しても永続化されたまま復帰後に自動同期されることを実機で確認済み）。
   - **当面の緩和策（実装済み・`PreviewScreen`）**: 保存ボタンは `isOffline` 中は無効化し、書込を開始しない（ハング防止）。送信後にオフラインへ転じた場合に備え、書込を 15 秒でタイムアウトしエラー表示に倒す（`withTimeout`）。いずれの場合も `draftStore` の下書きは `reset()` を呼ぶ保存成功時（「灯」演出後）まで保持されるため、オフライン中でも下書きが失われることはなく、オンライン復帰後に再度「保存する」で再試行できる。
 
 ---
