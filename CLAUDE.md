@@ -19,20 +19,28 @@
 
 ```
 tasogare-diary/
-├── CLAUDE.md              # 本ファイル（ルールの入口）
-├── Memory.md              # セッション間の状況記録（プロジェクト構成・技術情報・完了/残タスク）
+├── CLAUDE.md                  # 本ファイル（ルールの入口）
+├── Memory.md                  # セッション間の状況記録（プロジェクト構成・技術情報・完了/残タスク）
 ├── README.md
-├── docs/                  # 詳細設計（ステップ3で整備）
-│   ├── api-contract.md    # API仕様（Claude API / Firebase Functions）
-│   ├── architecture.md    # システム構成・画面遷移・UI・オーブ仕様
-│   └── data.md            # Firestore コレクション設計・データ関係図
+├── docs/                      # 詳細設計（正）
+│   ├── api-contract.md        # API仕様（Claude API→Gemini API 経由 / Cloudflare Workers）
+│   ├── architecture.md        # システム構成・画面遷移・UI・オーブ仕様
+│   ├── data.md                # Firestore コレクション設計・データ関係図
+│   ├── screen.md              # 画面仕様（画面一覧・遷移・状態）
+│   ├── migration-react-native-firebase.md  # ネイティブFirebase移行計画書
+│   └── design/
+│       ├── basic-design.md    # 基本設計（3クライアント構成・画面一覧・主要機能方針）
+│       └── visual-design.html # UIモック（画面ID・クラス名・文言の正）
 ├── .claude/
-│   ├── settings.json      # hooks（lint/型/テスト自動実行）
-│   ├── rules/             # 詳細ルール（下記参照）
-│   ├── skills/            # 実装時の定型知識（RN/Expo・Firebase）
-│   ├── commands/          # スラッシュコマンド（チェックループ等）
-│   └── hooks/             # hook 実行スクリプト
-└── src/                   # アプリ実装（ステップ4で作成）
+│   ├── settings.json          # hooks（lint/型/テスト自動実行）
+│   ├── rules/                 # 詳細ルール（下記参照）
+│   ├── skills/                # 実装時の定型知識（RN/Expo・Firebase）
+│   ├── commands/              # スラッシュコマンド（チェックループ等）
+│   └── hooks/                 # hook 実行スクリプト
+├── src/                        # モバイルアプリ実装（Expo/React Native）
+├── worker/                     # Cloudflare Workers（Gemini API プロキシ・別npmプロジェクト）
+├── web/                        # Web ダッシュボード（Next.js 静的エクスポート・別npmプロジェクト）
+└── shared/                     # src/ と web/ で共有する純粋TSコード（theme/types/qrScan等）
 ```
 
 ## 実装時に必ず守るべき原則
@@ -78,4 +86,6 @@ tasogare-diary/
 
 ## 現在のフェーズ
 
-**ステップ1：ハーネス整備**（本コミットで整備）。完了条件は CLAUDE.md / hooks / skills 雛形 / rules 5ファイル / チェックループ手順の明文化。以降のステップ2（Notion要件定義）はハーネス完了後に着手する。
+[features.md](.claude/rules/features.md) の **Phase 0〜4（ハーネス整備／4ステップ日記フロー／Firebase連携／QRペアリング／「こころの灯」オーブ）はすべて実装済み**。加えて、Firebase Auth/Firestore を JS SDK からネイティブSDK（`@react-native-firebase`）へ移行する**ネイティブFirebase移行（Phase1〜7、[migration-react-native-firebase.md](docs/migration-react-native-firebase.md)）も完了済み**（オフライン永続化・既存uid継続・Apple/Googleリンク昇格を実機検証済み）。
+
+現在は新規Phaseの開発ではなく、**運用フェーズ**（不具合修正・整合性維持・残タスク解消）にある。完了済み実装の詳細経緯・技術情報・残タスクは [Memory.md](Memory.md) を参照。次にどの残タスクへ着手するかは、都度ユーザーの指示に従う。
