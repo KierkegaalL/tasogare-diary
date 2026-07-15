@@ -7,30 +7,40 @@
 **たそがれ日記** は、1日の終わり（たそがれ時）に心を整えるための日記アプリです。
 
 - **技術スタック**: React Native / Expo（クライアント）、Firebase（Auth / Firestore / Functions）、Claude API 連携
-- **中心機能**: **4ステップ日記フロー**（下記）を軸に、Claude API による寄り添い応答、QRペアリング、「こころの灯」オーブ表現を提供する
-- **4ステップ日記フロー**:
-  1. きょうの出来事を書き出す
-  2. そのときの気持ちを選ぶ／言葉にする
-  3. Claude API が寄り添う応答・問いかけを返す
-  4. 気づきを一言でまとめ、「こころの灯」を灯す
+- **中心機能**: **4ステップ日記フロー**（下記）を軸に、Claude API による連想語提案・日記文生成・寄り添い対話、QRペアリング、「こころの灯」オーブ表現を提供する
+- **4ステップ日記フロー（きもち→できごと→ことば→たしかめる→灯）**:
+  1. **きもち**: いまの気持ちを一言／候補チップで選ぶ
+  2. **できごと**: きょうのできごとを一言／候補チップで選ぶ
+  3. **ことば**: Claude API が連想語を提案し、選択・追加する
+  4. **たしかめる**: Claude API が日記文を生成→調整→保存する
+  5. **灯**: 保存後に「こころの灯」が灯る演出（専用入力画面は持たず、進捗ドットは4つ）
 
 ## ディレクトリ構成
 
 ```
 tasogare-diary/
-├── CLAUDE.md              # 本ファイル（ルールの入口）
+├── CLAUDE.md                  # 本ファイル（ルールの入口）
+├── Memory.md                  # セッション間の状況記録（プロジェクト構成・技術情報・完了/残タスク）
 ├── README.md
-├── docs/                  # 詳細設計（ステップ3で整備）
-│   ├── api-contract.md    # API仕様（Claude API / Firebase Functions）
-│   ├── architecture.md    # システム構成・画面遷移・UI・オーブ仕様
-│   └── data.md            # Firestore コレクション設計・データ関係図
+├── docs/                      # 詳細設計（正）
+│   ├── api-contract.md        # API仕様（Claude API→Gemini API 経由 / Cloudflare Workers）
+│   ├── architecture.md        # システム構成・画面遷移・UI・オーブ仕様
+│   ├── data.md                # Firestore コレクション設計・データ関係図
+│   ├── screen.md              # 画面仕様（画面一覧・遷移・状態）
+│   ├── migration-react-native-firebase.md  # ネイティブFirebase移行計画書
+│   └── design/
+│       ├── basic-design.md    # 基本設計（3クライアント構成・画面一覧・主要機能方針）
+│       └── visual-design.html # UIモック（画面ID・クラス名・文言の正）
 ├── .claude/
-│   ├── settings.json      # hooks（lint/型/テスト自動実行）
-│   ├── rules/             # 詳細ルール（下記参照）
-│   ├── skills/            # 実装時の定型知識（RN/Expo・Firebase）
-│   ├── commands/          # スラッシュコマンド（チェックループ等）
-│   └── hooks/             # hook 実行スクリプト
-└── src/                   # アプリ実装（ステップ4で作成）
+│   ├── settings.json          # hooks（lint/型/テスト自動実行）
+│   ├── rules/                 # 詳細ルール（下記参照）
+│   ├── skills/                # 実装時の定型知識（RN/Expo・Firebase）
+│   ├── commands/              # スラッシュコマンド（チェックループ等）
+│   └── hooks/                 # hook 実行スクリプト
+├── src/                        # モバイルアプリ実装（Expo/React Native）
+├── worker/                     # Cloudflare Workers（Gemini API プロキシ・別npmプロジェクト）
+├── web/                        # Web ダッシュボード（Next.js 静的エクスポート・別npmプロジェクト）
+└── shared/                     # src/ と web/ で共有する純粋TSコード（theme/types/qrScan等）
 ```
 
 ## 実装時に必ず守るべき原則
@@ -53,6 +63,17 @@ tasogare-diary/
 6. **スコープはたそがれ日記に限定**
    本リポジトリでの会話・作業は「たそがれ日記」アプリに関するものに限定する。
 
+7. **使用モデルの使い分け**
+   タスクの性質に応じて使用モデルを切り替えること。
+   - **新規作成**（新しいファイル・機能・ドキュメントをゼロから作成する）: **Opus 4.8**（`claude-opus-4-8`）を使用する。
+   - **既存・作成済みファイルへの実行**（修整対応、バグ修正、残タスク調査、リファクタ、レビュー等）: **Sonnet 5**（`claude-sonnet-5`）を使用する。
+   - **自動化（補助）**: `UserPromptSubmit` フック（`.claude/hooks/model-advisor.sh`）が依頼文を判定して推奨モデルを**助言**する（フックはモデルを切り替えられない。必要に応じ `/model` で切替）。
+     - **警告時は実行を停止**: 現在のモデルが **Opus 4.8 のまま新規作成以外（既存/作成済みファイルへの修整・調査）の指示**を受けた場合、フックが警告を注入する。警告を受けたら、**その指示の実行に着手せず**、返信の冒頭でユーザーに不一致を明示し `/model` での Sonnet 5 切替を求めて停止すること。ユーザーが切替後に指示を再送するか、Opus 続行を明示的に指示した場合のみ実行してよい。
+     - レビュー・整合チェック・残タスク調査は `reviewer` サブエージェント（Sonnet 5 固定）を起動して行う。詳細（モデル検知方法・未検知時の挙動）は [build-commands.md](.claude/rules/build-commands.md) を参照。
+
+8. **セッション消費量の節約（チェックポイント方式）**
+   1機能（1PR）の完了直後など、区切りのよいタイミング（チェックポイント）で、残タスクを `TaskCreate`/`TaskUpdate` に構造化して保持し、進捗・残タスクを要約したうえで `/compact` の実行をユーザーに提案すること。数値ベースの消費量（%）は実行中に正確に取得できないため判断基準にしない。同じチェックポイントで [Memory.md](Memory.md)（完了済み作業・残タスク・技術情報の節）も更新すること。詳細は [build-commands.md](.claude/rules/build-commands.md) を参照。
+
 ## `.claude/rules/` 参照一覧
 
 | ファイル | 内容 |
@@ -65,4 +86,6 @@ tasogare-diary/
 
 ## 現在のフェーズ
 
-**ステップ1：ハーネス整備**（本コミットで整備）。完了条件は CLAUDE.md / hooks / skills 雛形 / rules 5ファイル / チェックループ手順の明文化。以降のステップ2（Notion要件定義）はハーネス完了後に着手する。
+[features.md](.claude/rules/features.md) の **Phase 0〜4（ハーネス整備／4ステップ日記フロー／Firebase連携／QRペアリング／「こころの灯」オーブ）はすべて実装済み**。加えて、Firebase Auth/Firestore を JS SDK からネイティブSDK（`@react-native-firebase`）へ移行する**ネイティブFirebase移行（Phase1〜7、[migration-react-native-firebase.md](docs/migration-react-native-firebase.md)）も完了済み**（オフライン永続化・既存uid継続・Apple/Googleリンク昇格を実機検証済み）。
+
+現在は新規Phaseの開発ではなく、**運用フェーズ**（不具合修正・整合性維持・残タスク解消）にある。完了済み実装の詳細経緯・技術情報・残タスクは [Memory.md](Memory.md) を参照。次にどの残タスクへ着手するかは、都度ユーザーの指示に従う。

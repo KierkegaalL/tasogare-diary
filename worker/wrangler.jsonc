@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tasogare-diary-claude-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+
+  // Cron Triggers: insights の事前生成（src/cron.ts の scheduled ハンドラ）。
+  // 15:00 UTC ＝ 00:00 JST（日付が変わった直後）に現在期間の weekly/monthly まとめを温める。
+  // best-effort のキャッシュ温めで、正はオンデマンド生成。処理ユーザー数は CRON_MAX_USERS で制限。
+  "triggers": {
+    "crons": ["0 15 * * *"]
+  },
+
+  // 公開可能な値のみ。GEMINI_API_KEY はここに書かず `wrangler secret put GEMINI_API_KEY` で登録する。
+  "vars": {
+    "FIREBASE_PROJECT_ID": "tasogare-diary-project"
+    // LLM プロバイダ切替（既定: gemini）。別プロバイダ追加時に指定する（src/llm/index.ts）。
+    // "LLM_PROVIDER": "gemini",
+    // "GEMINI_MODEL_INTERACTIVE": "gemini-3.1-flash-lite",
+    // "GEMINI_MODEL_GENERATE": "gemini-3.5-flash"
+  }
+
+  // 環境ごとに分ける場合の例（dev/staging/prod）。実値は Cloudflare ダッシュボード or
+  // env 別の vars で管理する（environments.md）。
+  // "env": {
+  //   "staging": {
+  //     "name": "tasogare-diary-claude-proxy-staging",
+  //     "vars": { "FIREBASE_PROJECT_ID": "tasogare-diary-staging" }
+  //   }
+  // }
+}

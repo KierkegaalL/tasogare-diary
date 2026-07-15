@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "staging": "tasogare-diary-staging",
+    "prod": "tasogare-diary-prod"
+  }
+}

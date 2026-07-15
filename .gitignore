@@ -6,12 +6,30 @@
 .env.*
 !.env.example
 
-# 依存・ビルド成果物（ステップ4以降）
+# 依存・ビルド成果物
 node_modules/
 .expo/
 dist/
 web-build/
+expo-env.d.ts
+*.tsbuildinfo
 *.log
+npm-debug.*
+.metro-health-check*
+
+# ネイティブ生成物（prebuild）
+/ios
+/android
+.kotlin/
+
+# Firebase CLI（deploy キャッシュ）
+.firebase/
+
+# Firebase ネイティブ設定ファイル（@react-native-firebase 用。公開可能だが環境ごとに別ファイルの
+# ためコミットしない。docs/migration-react-native-firebase.md 第5章）
+GoogleService-Info.plist
+google-services.json
 
 # OS
 .DS_Store
+*.pem

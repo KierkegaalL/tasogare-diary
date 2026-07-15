@@ -1,0 +1,87 @@
+import React, { useEffect } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { NavigationContainer } from '@react-navigation/native';
+import { useFonts, KleeOne_400Regular, KleeOne_600SemiBold } from '@expo-google-fonts/klee-one';
+import {
+  ZenMaruGothic_400Regular,
+  ZenMaruGothic_500Medium,
+  ZenMaruGothic_700Bold,
+} from '@expo-google-fonts/zen-maru-gothic';
+
+import { AppProviders } from './src/app/providers/AppProviders';
+import { RootNavigator } from './src/app/navigation/RootNavigator';
+import { WebConnectGate } from './src/screens/webConnect/WebConnectGate';
+import { useAuthStore } from './src/stores/authStore';
+import { useDraftStore } from './src/stores/draftStore';
+import { useEntriesStore } from './src/stores/entriesStore';
+import { colors, fonts } from './src/theme';
+
+export default function App() {
+  const [fontsLoaded] = useFonts({
+    KleeOne_400Regular,
+    KleeOne_600SemiBold,
+    ZenMaruGothic_400Regular,
+    ZenMaruGothic_500Medium,
+    ZenMaruGothic_700Bold,
+  });
+
+  const status = useAuthStore((s) => s.status);
+  const initialize = useAuthStore((s) => s.initialize);
+  const uid = useAuthStore((s) => s.user?.uid);
+  const bootstrapEntries = useEntriesStore((s) => s.bootstrap);
+  const teardownEntries = useEntriesStore((s) => s.teardown);
+  const draftHydrated = useDraftStore((s) => s.hasHydrated);
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  // 認証確立後、uid スコープで日記の購読を開始する。uid 喪失時は購読解除＋表示クリア。
+  useEffect(() => {
+    if (uid) bootstrapEntries(uid);
+    else teardownEntries();
+  }, [uid, bootstrapEntries, teardownEntries]);
+
+  if (!fontsLoaded || status === 'loading' || !draftHydrated) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={colors.dusk} />
+      </View>
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>起動に失敗しました。アプリを再起動してください。</Text>
+      </View>
+    );
+  }
+
+  // Web版（Platform.OS === 'web'）専用。既存セッションが無い間は連携画面を表示し、
+  // 自動で匿名セッションを発行しない（ユーザー指摘: Webとモバイルで同じ日記を見られるようにする）。
+  if (status === 'needs-connect') {
+    // WebConnectGate は SafeAreaView を使うため AppProviders（SafeAreaProvider）配下で描画する
+    // 必要がある（実機確認で ForwardRef のエラーとして顕在化・発見）。
+    return (
+      <AppProviders>
+        <WebConnectGate />
+      </AppProviders>
+    );
+  }
+
+  return (
+    <AppProviders>
+      <NavigationContainer>
+        <RootNavigator />
+      </NavigationContainer>
+      <StatusBar style="dark" />
+    </AppProviders>
+  );
+}
+
+const styles = StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.paper, padding: 24 },
+  errorText: { fontFamily: fonts.uiRegular, fontSize: 13, color: colors.inkSoft, textAlign: 'center' },
+});

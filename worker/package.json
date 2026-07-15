@@ -1,0 +1,21 @@
+{
+  "name": "tasogare-diary-worker",
+  "description": "たそがれ日記 AI連携プロキシ（Cloudflare Workers / Spark プラン対応）",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "jose": "^6.2.3"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.107.1"
+  }
+}
